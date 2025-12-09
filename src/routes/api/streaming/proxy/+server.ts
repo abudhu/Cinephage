@@ -246,14 +246,12 @@ export const GET: RequestHandler = async ({ url, request }) => {
 function ensureVodPlaylist(playlist: string): string {
 	const lines = playlist.split('\n');
 	const rewritten: string[] = [];
-	let hasEndList = false;
 	let hasPlaylistType = false;
 	let isMediaPlaylist = false;
 
 	// First pass: detect existing tags
 	for (const line of lines) {
 		const trimmed = line.trim();
-		if (trimmed === '#EXT-X-ENDLIST') hasEndList = true;
 		if (trimmed.startsWith('#EXT-X-PLAYLIST-TYPE:')) hasPlaylistType = true;
 		// Media playlists have EXTINF (segment duration) tags, master playlists don't
 		if (trimmed.startsWith('#EXTINF:')) isMediaPlaylist = true;
@@ -277,22 +275,20 @@ function ensureVodPlaylist(playlist: string): string {
 			continue;
 		}
 
-		// Skip if we're about to add ENDLIST and this is already at the end
+		// Skip ENDLIST - we'll add it at the very end to ensure correct positioning
 		if (trimmed === '#EXT-X-ENDLIST') {
-			hasEndList = true;
+			continue;
 		}
 
 		rewritten.push(line);
 	}
 
-	// Add ENDLIST if missing
-	if (!hasEndList) {
-		// Remove trailing empty lines before adding ENDLIST
-		while (rewritten.length > 0 && rewritten[rewritten.length - 1].trim() === '') {
-			rewritten.pop();
-		}
-		rewritten.push('#EXT-X-ENDLIST');
+	// Always add ENDLIST at the end (we removed any existing one above)
+	// Remove trailing empty lines before adding ENDLIST
+	while (rewritten.length > 0 && rewritten[rewritten.length - 1].trim() === '') {
+		rewritten.pop();
 	}
+	rewritten.push('#EXT-X-ENDLIST');
 
 	return rewritten.join('\n');
 }
@@ -326,6 +322,8 @@ function rewritePlaylistUrls(
 		return `${proxyBaseUrl}/api/streaming/proxy/segment.${extension}?url=${encodeURIComponent(absoluteUrl)}&referer=${encodeURIComponent(referer)}`;
 	};
 
+	let previousWasExtinf = false;
+
 	for (const line of lines) {
 		const trimmedLine = line.trim();
 
@@ -339,32 +337,45 @@ function rewritePlaylistUrls(
 			} else {
 				rewritten.push(line);
 			}
+			previousWasExtinf = false;
+			continue;
+		}
+
+		// Track #EXTINF lines - the next URL line is always a segment
+		if (trimmedLine.startsWith('#EXTINF:')) {
+			rewritten.push(line);
+			previousWasExtinf = true;
 			continue;
 		}
 
 		// Keep other comments and empty lines as-is
 		if (line.startsWith('#') || trimmedLine === '') {
 			rewritten.push(line);
+			previousWasExtinf = false;
 			continue;
 		}
 
 		// This is a URL line - could be a playlist or segment
 		if (!trimmedLine) {
 			rewritten.push(line);
+			previousWasExtinf = false;
 			continue;
 		}
 
 		try {
-			// Determine if this is a segment (.ts) or a playlist (.m3u8)
+			// If previous line was #EXTINF, this is definitely a segment URL
+			// regardless of its extension (providers use fake extensions like .txt, .jpg, .html)
+			// Otherwise, check for common segment extensions or assume playlist
 			const isSegment =
+				previousWasExtinf ||
 				trimmedLine.includes('.ts') ||
 				trimmedLine.includes('.aac') ||
-				trimmedLine.includes('.mp4') ||
-				(!trimmedLine.includes('.m3u8') && !trimmedLine.includes('.txt'));
+				trimmedLine.includes('.mp4');
 			rewritten.push(makeProxyUrl(trimmedLine, isSegment));
 		} catch {
 			rewritten.push(line);
 		}
+		previousWasExtinf = false;
 	}
 
 	return rewritten.join('\n');
