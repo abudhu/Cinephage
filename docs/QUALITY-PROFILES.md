@@ -105,19 +105,6 @@ Releases are scored based on multiple factors. Higher scores indicate better qua
 
 ## Custom Profiles
 
-You can create custom profiles in Settings > Profiles based on the built-in profiles.
+> **Work in Progress**: Custom profiles are under active development and not fully tested. Use with caution.
 
-### Currently Available
-
-- Create profiles based on built-in profiles (Best, Efficient, Micro, Streaming)
-- Set profile name and description
-- Configure file size limits (min/max GB for movies, min/max MB for episodes)
-- Set as default profile for new content
-- Basic upgrade settings
-
-### Not Yet Implemented
-
-- Custom format score editing (adjusting weights for resolution, audio, HDR)
-- Minimum acceptable quality thresholds
-- Upgrade cutoffs (stop upgrading after reaching a quality level)
-- Release group whitelists/blacklists
+The UI in Settings > Profiles allows basic profile creation, but this feature is incomplete. The 4 built-in profiles (Best, Efficient, Micro, Streaming) are the recommended option for now.
