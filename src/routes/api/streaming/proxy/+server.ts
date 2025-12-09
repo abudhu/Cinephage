@@ -193,8 +193,10 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		if (isPlaylist) {
 			const text = new TextDecoder().decode(arrayBuffer);
 			const rewrittenPlaylist = rewritePlaylistUrls(text, decodedUrl, baseUrl, referer);
+			// Ensure VOD markers are present so players start from beginning
+			const vodPlaylist = ensureVodPlaylist(rewrittenPlaylist);
 
-			return new Response(rewrittenPlaylist, {
+			return new Response(vodPlaylist, {
 				status: 200,
 				headers: {
 					'Content-Type': 'application/vnd.apple.mpegurl',
@@ -235,6 +237,65 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		);
 	}
 };
+
+/**
+ * Ensure playlist has VOD markers so players start from the beginning.
+ * Without #EXT-X-ENDLIST and #EXT-X-PLAYLIST-TYPE:VOD, players treat
+ * the stream as "live" and start at the end (live edge).
+ */
+function ensureVodPlaylist(playlist: string): string {
+	const lines = playlist.split('\n');
+	const rewritten: string[] = [];
+	let hasEndList = false;
+	let hasPlaylistType = false;
+	let isMediaPlaylist = false;
+
+	// First pass: detect existing tags
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (trimmed === '#EXT-X-ENDLIST') hasEndList = true;
+		if (trimmed.startsWith('#EXT-X-PLAYLIST-TYPE:')) hasPlaylistType = true;
+		// Media playlists have EXTINF (segment duration) tags, master playlists don't
+		if (trimmed.startsWith('#EXTINF:')) isMediaPlaylist = true;
+	}
+
+	// Only modify media playlists, not master playlists
+	if (!isMediaPlaylist) {
+		return playlist;
+	}
+
+	// Second pass: rewrite with VOD markers
+	for (const line of lines) {
+		const trimmed = line.trim();
+
+		// Add VOD type after EXTM3U if missing
+		if (trimmed === '#EXTM3U') {
+			rewritten.push(line);
+			if (!hasPlaylistType) {
+				rewritten.push('#EXT-X-PLAYLIST-TYPE:VOD');
+			}
+			continue;
+		}
+
+		// Skip if we're about to add ENDLIST and this is already at the end
+		if (trimmed === '#EXT-X-ENDLIST') {
+			hasEndList = true;
+		}
+
+		rewritten.push(line);
+	}
+
+	// Add ENDLIST if missing
+	if (!hasEndList) {
+		// Remove trailing empty lines before adding ENDLIST
+		while (rewritten.length > 0 && rewritten[rewritten.length - 1].trim() === '') {
+			rewritten.pop();
+		}
+		rewritten.push('#EXT-X-ENDLIST');
+	}
+
+	return rewritten.join('\n');
+}
 
 function rewritePlaylistUrls(
 	playlist: string,
