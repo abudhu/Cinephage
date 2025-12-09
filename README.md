@@ -34,6 +34,8 @@ Cinephage consolidates four separate applications into one streamlined experienc
 
 ## Project Status
 
+<div align="center">
+
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Content Discovery | Stable | TMDB integration, trending, search |
@@ -44,6 +46,8 @@ Cinephage consolidates four separate applications into one streamlined experienc
 | Subtitles | Stable | 8 providers, 80+ languages |
 | Monitoring | Experimental | 5 tasks coded, may have bugs |
 | Live TV/IPTV | Not Started | Planned for future |
+
+</div>
 
 ## Features
 
