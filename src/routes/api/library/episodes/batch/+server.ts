@@ -39,7 +39,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
 				.set({ monitored })
 				.where(inArray(episodes.id, episodeIds));
 
-			updatedCount = result.rowsAffected;
+			updatedCount = result.changes;
 		}
 		// Update all episodes in series/season
 		else if (seriesId) {
@@ -54,7 +54,7 @@ export const PATCH: RequestHandler = async ({ request }) => {
 				.set({ monitored })
 				.where(and(...conditions));
 
-			updatedCount = result.rowsAffected;
+			updatedCount = result.changes;
 		} else {
 			return json(
 				{ success: false, error: 'Either episodeIds or seriesId must be provided' },

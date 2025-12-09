@@ -10,6 +10,7 @@
 
 import type { RequestHandler } from './$types';
 import { getBaseUrlAsync } from '$lib/server/streaming';
+import { logger } from '$lib/logging';
 
 // Security constants
 const MAX_REDIRECTS = 5;
@@ -89,7 +90,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		// SSRF protection: validate URL is safe before proxying
 		const safetyCheck = isUrlSafe(decodedUrl);
 		if (!safetyCheck.safe) {
-			console.warn(`[Proxy] Blocked unsafe URL: ${decodedUrl} - ${safetyCheck.reason}`);
+			logger.warn('Blocked unsafe URL', { url: decodedUrl, reason: safetyCheck.reason, logCategory: 'streams' });
 			return new Response(
 				JSON.stringify({ error: 'URL not allowed', reason: safetyCheck.reason }),
 				{ status: 403, headers: { 'Content-Type': 'application/json' } }
@@ -113,7 +114,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		while (true) {
 			// Check for redirect loop
 			if (visitedUrls.has(currentUrl)) {
-				console.warn(`[Proxy] Redirect loop detected: ${currentUrl}`);
+				logger.warn('Redirect loop detected', { url: currentUrl, logCategory: 'streams' });
 				return new Response(JSON.stringify({ error: 'Redirect loop detected' }), {
 					status: 508,
 					headers: { 'Content-Type': 'application/json' }
@@ -123,7 +124,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 			// Check redirect limit
 			if (redirectCount >= MAX_REDIRECTS) {
-				console.warn(`[Proxy] Max redirects exceeded for: ${decodedUrl}`);
+				logger.warn('Max redirects exceeded', { url: decodedUrl, maxRedirects: MAX_REDIRECTS, logCategory: 'streams' });
 				return new Response(
 					JSON.stringify({ error: 'Too many redirects', maxRedirects: MAX_REDIRECTS }),
 					{ status: 508, headers: { 'Content-Type': 'application/json' } }
@@ -144,9 +145,11 @@ export const GET: RequestHandler = async ({ url, request }) => {
 					// Validate redirect target for SSRF
 					const redirectSafetyCheck = isUrlSafe(redirectUrl);
 					if (!redirectSafetyCheck.safe) {
-						console.warn(
-							`[Proxy] Blocked unsafe redirect: ${redirectUrl} - ${redirectSafetyCheck.reason}`
-						);
+						logger.warn('Blocked unsafe redirect', {
+							url: redirectUrl,
+							reason: redirectSafetyCheck.reason,
+							logCategory: 'streams'
+						});
 						return new Response(
 							JSON.stringify({
 								error: 'Redirect target not allowed',
@@ -222,7 +225,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 			}
 		});
 	} catch (error) {
-		console.error('[Proxy] Error:', error);
+		logger.error('Proxy error', error, { url: targetUrl, logCategory: 'streams' });
 		return new Response(
 			JSON.stringify({
 				error: 'Proxy error',

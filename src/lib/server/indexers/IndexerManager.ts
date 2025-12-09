@@ -180,7 +180,7 @@ export class IndexerManager {
 	}
 
 	/** Create a new indexer configuration */
-	async createIndexer(config: Omit<IndexerConfig, 'id'>): Promise<IndexerConfig> {
+	async createIndexer(config: Omit<IndexerConfig, 'id' | 'protocol'>): Promise<IndexerConfig> {
 		// Check both native TypeScript indexers and YAML definitions
 		const nativeDef = getNativeIndexerDefinition(config.definitionId);
 		const yamlDef = this.definitionLoader.get(config.definitionId);

@@ -1,6 +1,6 @@
-# Contributing to Cinephage
+# Contributing
 
-Thank you for your interest in contributing to Cinephage! This document provides guidelines and information for contributors.
+Want to contribute? Here's how to get set up.
 
 ## Development Setup
 
@@ -15,7 +15,7 @@ Thank you for your interest in contributing to Cinephage! This document provides
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/cinephage.git
+   git clone https://github.com/MoldyTaint/cinephage.git
    cd cinephage
    ```
 

@@ -60,7 +60,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 	}
 
 	// Check if this is the streaming indexer and capture old baseUrl
-	const isStreamingIndexer = existingIndexer.implementation === CINEPHAGE_STREAM_DEFINITION_ID;
+	const isStreamingIndexer = existingIndexer.definitionId === CINEPHAGE_STREAM_DEFINITION_ID;
 	const oldBaseUrl = existingIndexer.settings?.baseUrl;
 	const newBaseUrl = validated.settings?.baseUrl;
 
@@ -95,7 +95,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 			// Run in background to not block the response
 			import('$lib/server/streaming')
 				.then(async ({ strmService, getStreamingBaseUrl }) => {
-					const baseUrl = await getStreamingBaseUrl();
+					const baseUrl = await getStreamingBaseUrl(newBaseUrl);
 					const result = await strmService.bulkUpdateStrmUrls(baseUrl);
 					logger.info('[IndexerAPI] Background .strm update complete', {
 						totalFiles: result.totalFiles,

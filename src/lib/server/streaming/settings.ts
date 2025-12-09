@@ -98,11 +98,11 @@ export async function getStreamingIndexerSettings(): Promise<StreamingIndexerSet
  * Get the base URL for streaming, with fallback chain:
  * 1. Indexer settings (from DB)
  * 2. PUBLIC_BASE_URL environment variable
- * 3. Provided default (usually from request headers)
+ * 3. Provided fallback (usually from request headers)
+ *
+ * @param fallback - Required fallback URL if no other source is configured
  */
-export async function getStreamingBaseUrl(
-	fallbackDefault: string = 'http://localhost:5173'
-): Promise<string> {
+export async function getStreamingBaseUrl(fallback: string): Promise<string> {
 	const settings = await getStreamingIndexerSettings();
 
 	if (settings?.baseUrl) {
@@ -115,8 +115,29 @@ export async function getStreamingBaseUrl(
 		return envUrl.replace(/\/$/, '');
 	}
 
-	return fallbackDefault;
+	return fallback;
 }
+
+/**
+ * Provider toggle configuration for individual settings.
+ * Maps provider ID to its settings key and default state.
+ */
+const PROVIDER_TOGGLES: Array<{
+	id: StreamingProvider;
+	settingsKey: keyof StreamingIndexerSettings;
+	enabledByDefault: boolean;
+}> = [
+	{ id: 'videasy', settingsKey: 'enableVideasy', enabledByDefault: true },
+	{ id: 'vidlink', settingsKey: 'enableVidlink', enabledByDefault: true },
+	{ id: 'xprime', settingsKey: 'enableXprime', enabledByDefault: true },
+	{ id: 'smashy', settingsKey: 'enableSmashy', enabledByDefault: true },
+	{ id: 'hexa', settingsKey: 'enableHexa', enabledByDefault: true },
+	{ id: 'yflix', settingsKey: 'enableYflix', enabledByDefault: false },
+	{ id: 'mapple', settingsKey: 'enableMapple', enabledByDefault: false },
+	{ id: 'onetouchtv', settingsKey: 'enableOnetouchtv', enabledByDefault: false },
+	{ id: 'animekai', settingsKey: 'enableAnimekai', enabledByDefault: false },
+	{ id: 'kisskh', settingsKey: 'enableKisskh', enabledByDefault: false }
+];
 
 /**
  * Get list of enabled streaming providers based on indexer settings.
@@ -136,57 +157,23 @@ export async function getEnabledProviders(): Promise<StreamingProvider[]> {
 		}
 	}
 
-	// Check individual toggles
+	// Check individual toggles using provider configuration
 	const providers: StreamingProvider[] = [];
 
-	// Videasy - enabled by default
-	if (settings?.enableVideasy !== 'false') {
-		providers.push('videasy');
-	}
+	for (const toggle of PROVIDER_TOGGLES) {
+		const settingValue = settings?.[toggle.settingsKey];
 
-	// Vidlink - enabled by default
-	if (settings?.enableVidlink !== 'false') {
-		providers.push('vidlink');
-	}
-
-	// XPrime - enabled by default
-	if (settings?.enableXprime !== 'false') {
-		providers.push('xprime');
-	}
-
-	// Smashy - enabled by default
-	if (settings?.enableSmashy !== 'false') {
-		providers.push('smashy');
-	}
-
-	// Hexa - enabled by default
-	if (settings?.enableHexa !== 'false') {
-		providers.push('hexa');
-	}
-
-	// YFlix - disabled by default (requires content ID lookup)
-	if (settings?.enableYflix === 'true') {
-		providers.push('yflix');
-	}
-
-	// Mapple - disabled by default (special header handling)
-	if (settings?.enableMapple === 'true') {
-		providers.push('mapple');
-	}
-
-	// OneTouchTV - disabled by default (requires content ID lookup)
-	if (settings?.enableOnetouchtv === 'true') {
-		providers.push('onetouchtv');
-	}
-
-	// AnimeKai - disabled by default (requires content ID lookup)
-	if (settings?.enableAnimekai === 'true') {
-		providers.push('animekai');
-	}
-
-	// KissKH - disabled by default (requires content ID lookup)
-	if (settings?.enableKisskh === 'true') {
-		providers.push('kisskh');
+		if (toggle.enabledByDefault) {
+			// Enabled by default: only exclude if explicitly set to 'false'
+			if (settingValue !== 'false') {
+				providers.push(toggle.id);
+			}
+		} else {
+			// Disabled by default: only include if explicitly set to 'true'
+			if (settingValue === 'true') {
+				providers.push(toggle.id);
+			}
+		}
 	}
 
 	// If no providers enabled from settings, use defaults

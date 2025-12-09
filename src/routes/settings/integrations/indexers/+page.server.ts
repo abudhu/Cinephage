@@ -87,9 +87,6 @@ export const actions: Actions = {
 		}
 
 		try {
-			// Derive protocol from definition (native indexers have explicit protocol, YAML are torrents)
-			const protocol = 'protocol' in definition ? definition.protocol : 'torrent';
-
 			await manager.createIndexer({
 				name: result.data.name,
 				definitionId: result.data.implementation,
@@ -97,7 +94,6 @@ export const actions: Actions = {
 				alternateUrls: result.data.alternateUrls,
 				enabled: result.data.enabled,
 				priority: result.data.priority,
-				protocol,
 				settings: result.data.settings ?? {},
 
 				// Search capability toggles
