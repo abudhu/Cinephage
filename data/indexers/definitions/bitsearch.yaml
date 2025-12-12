@@ -1,0 +1,92 @@
+---
+# BitSearch (formerly SolidTorrents)
+# DHT torrent search engine - solidtorrents.net domain is now parked
+# BitSearch.to is the active site with the same underlying search engine
+id: bitsearch
+name: BitSearch
+description: DHT torrent search engine (formerly SolidTorrents) with 45M+ indexed torrents
+type: public
+protocol: torrent
+language: en-US
+encoding: UTF-8
+requestdelay: 2
+
+links:
+  - https://bitsearch.to
+legacylinks:
+  - https://solidtorrents.to
+  - https://solidtorrents.eu
+
+caps:
+  modes:
+    search: [q]
+    movie-search: [q]
+    tv-search: [q]
+  categories:
+    '2000': Movies
+    '5000': TV
+    '8000': Other
+  categorymappings:
+    - id: Other/Video
+      cat: '2000'
+      desc: Video content
+      default: true
+    - id: Video
+      cat: '2000'
+      desc: Video
+    - id: Movies
+      cat: '2000'
+      desc: Movies
+    - id: TV
+      cat: '5000'
+      desc: TV Shows
+
+search:
+  paths:
+    - path: /search
+      method: get
+      inputs:
+        q: '{{ .Keywords }}'
+        sort: seeders
+
+  response:
+    type: html
+
+  rows:
+    selector: div.bg-white.rounded-lg.shadow-sm.border.border-gray-200
+
+  fields:
+    title:
+      selector: h3 a
+    details:
+      selector: h3 a
+      attribute: href
+    magnet:
+      selector: a[href^="magnet:"]
+      attribute: href
+    download:
+      selector: a[href^="/download/torrent/"]
+      attribute: href
+      optional: true
+    size:
+      selector: span:has(i.fa-download) span:not(.font-medium)
+      filters:
+        - name: replace
+          args: ["GB", " GB"]
+        - name: replace
+          args: ["MB", " MB"]
+    date:
+      selector: span:has(i.fa-calendar) span
+      filters:
+        - name: dateparse
+          args: "1/2/2006"
+    seeders:
+      selector: span.text-green-600 span.font-medium
+    leechers:
+      selector: span.text-red-600 span.font-medium
+    grabs:
+      selector: span.text-blue-600 span.font-medium
+      optional: true
+    category:
+      selector: span:has(i.fa-video) span
+      optional: true
