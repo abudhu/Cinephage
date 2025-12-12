@@ -316,6 +316,7 @@ export class Subf2mProvider extends BaseSubtitleProvider {
 
 	/**
 	 * Get subtitle list from title page
+	 * Subf2m requires fetching language-specific pages (e.g., /subtitles/inception/english)
 	 */
 	private async getSubtitleList(
 		titleUrl: string,
@@ -334,19 +335,7 @@ export class Subf2mProvider extends BaseSubtitleProvider {
 			episode?: number;
 		}>
 	> {
-		const fullUrl = titleUrl.startsWith('http') ? titleUrl : `${BASE_URL}${titleUrl}`;
-
-		const response = await this.fetchWithTimeout(fullUrl, {
-			timeout: timeout || 15000,
-			headers: this.getHeaders()
-		});
-
-		if (!response.ok) {
-			this.handleErrorResponse(response);
-		}
-
-		const html = await response.text();
-		const $ = cheerio.load(html);
+		const baseUrl = titleUrl.startsWith('http') ? titleUrl : `${BASE_URL}${titleUrl}`;
 
 		const items: Array<{
 			language: string;
@@ -360,78 +349,99 @@ export class Subf2mProvider extends BaseSubtitleProvider {
 			episode?: number;
 		}> = [];
 
-		// Parse subtitle rows
-		$('.subtitle-list li, table.subtitles tbody tr, .subtitles-list .item').each((_, row) => {
-			const $row = $(row);
+		// Fetch each requested language page
+		for (const langCode of requestedLanguages) {
+			const subf2mLang = SUBF2M_LANGUAGES[langCode];
+			if (!subf2mLang) {
+				logger.debug('[Subf2m] No mapping for language', { langCode });
+				continue;
+			}
 
-			// Get language
-			const langEl = $row.find('.language-name, .lang, td:first-child');
-			let langText = langEl.text().toLowerCase().trim();
+			const langUrl = `${baseUrl}/${subf2mLang}`;
 
-			// Try to find language from class or attribute
-			if (!langText) {
-				const langClass = $row.find('[class*="lang-"]').attr('class') || '';
-				const langMatch = langClass.match(/lang-(\w+)/);
-				if (langMatch) {
-					langText = langMatch[1];
+			try {
+				const response = await this.fetchWithTimeout(langUrl, {
+					timeout: timeout || 15000,
+					headers: this.getHeaders()
+				});
+
+				if (!response.ok) {
+					// 404 means no subtitles for this language, not an error
+					if (response.status === 404) {
+						continue;
+					}
+					this.handleErrorResponse(response);
 				}
+
+				const html = await response.text();
+				const $ = cheerio.load(html);
+
+				// Parse subtitle rows - Subf2m structure: ul.sublist > li.item
+				$('ul.sublist li.item').each((_, row) => {
+					const $row = $(row);
+
+					// Get subtitle URL - uses /subtitles/ (plural) path
+					const subtitleLink =
+						$row.find('a.download[href*="/subtitles/"]').attr('href') ||
+						$row.find('a[href*="/subtitles/"][class*="download"]').attr('href');
+					if (!subtitleLink) return;
+
+					// Get release name from scrolllist
+					const releaseName =
+						$row.find('ul.scrolllist li').first().text().trim() ||
+						$row.find('.col-info li').first().text().trim();
+
+					// Check for HI - look for HI indicator in classes or text
+					const isHi =
+						$row.find('.hi, [title*="hearing"], .hearing-impaired').length > 0 ||
+						$row.find('span.hi').length > 0 ||
+						$row.text().toLowerCase().includes('hearing impaired');
+
+					// Get download count (Subf2m doesn't show counts on list page)
+					const downloadsText = $row.find('.download-count, .downloads').text();
+					const downloadsMatch = downloadsText.match(/(\d+)/);
+					const downloads = downloadsMatch ? parseInt(downloadsMatch[1], 10) : undefined;
+
+					// Get uploader from comment-col
+					const uploader =
+						$row.find('.comment-col a').text().trim() ||
+						$row.find('.comment-col b').text().replace(/^By\s*/i, '').trim() ||
+						undefined;
+
+					// Try to extract season/episode from release name
+					let season: number | undefined;
+					let episode: number | undefined;
+					const seMatch = releaseName.match(/S(\d{1,2})E(\d{1,2})/i);
+					if (seMatch) {
+						season = parseInt(seMatch[1], 10);
+						episode = parseInt(seMatch[2], 10);
+					} else {
+						const seasonMatch = releaseName.match(/Season\s*(\d+)/i);
+						if (seasonMatch) {
+							season = parseInt(seasonMatch[1], 10);
+						}
+					}
+
+					// Use the language code from the loop (we know which language page we're on)
+					items.push({
+						language: langCode,
+						releaseName,
+						downloadUrl: subtitleLink,
+						isHi,
+						downloads,
+						uploader,
+						season,
+						episode
+					});
+				});
+			} catch (error) {
+				// Log but don't fail - continue with other languages
+				logger.warn('[Subf2m] Failed to fetch language page', {
+					langCode,
+					error: error instanceof Error ? error.message : 'Unknown error'
+				});
 			}
-
-			// Map to ISO code
-			const isoLang = SUBF2M_LANGUAGE_REVERSE[langText] || this.normalizeLanguage(langText);
-
-			// Skip if not requested
-			if (!requestedLanguages.includes(isoLang)) {
-				return;
-			}
-
-			// Get subtitle URL
-			const subtitleLink = $row.find('a[href*="/subtitle/"]').attr('href');
-			if (!subtitleLink) return;
-
-			// Get release name
-			const releaseName =
-				$row.find('.release-name, .name, td:nth-child(2)').text().trim() ||
-				$row.find('a[href*="/subtitle/"]').text().trim();
-
-			// Check for HI
-			const isHi =
-				$row.find('.hi, [title*="hearing"], .hearing-impaired').length > 0 ||
-				$row.text().toLowerCase().includes('hearing impaired');
-
-			// Get download count
-			const downloadsText = $row.find('.download-count, .downloads, td:nth-child(4)').text();
-			const downloadsMatch = downloadsText.match(/(\d+)/);
-			const downloads = downloadsMatch ? parseInt(downloadsMatch[1], 10) : undefined;
-
-			// Get uploader
-			const uploader = $row.find('.uploader, .owner, td:nth-child(3) a').text().trim() || undefined;
-
-			// Try to extract season/episode from release name
-			let season: number | undefined;
-			let episode: number | undefined;
-			const seMatch = releaseName.match(/S(\d{1,2})E(\d{1,2})/i);
-			if (seMatch) {
-				season = parseInt(seMatch[1], 10);
-				episode = parseInt(seMatch[2], 10);
-			} else {
-				const seasonMatch = releaseName.match(/Season\s*(\d+)/i);
-				if (seasonMatch) {
-					season = parseInt(seasonMatch[1], 10);
-				}
-			}
-
-			items.push({
-				language: isoLang,
-				releaseName,
-				downloadUrl: subtitleLink,
-				isHi,
-				downloads,
-				uploader,
-				season,
-				episode
-			});
-		});
+		}
 
 		return items;
 	}

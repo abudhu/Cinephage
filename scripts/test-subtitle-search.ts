@@ -13,14 +13,14 @@ import type { SubtitleSearchCriteria } from '../src/lib/server/subtitles/types';
 async function main() {
 	console.log('=== Subtitle System Live Test ===\n');
 
-	// Create a Podnapisi provider instance (doesn't require API key)
+	// Create a Subf2m provider instance (doesn't require API key)
 	const factory = getSubtitleProviderFactory();
 
 	console.log('1. Testing provider instantiation...');
 	const provider = factory.createProvider({
-		id: 'test-podnapisi',
-		name: 'Test Podnapisi',
-		implementation: 'podnapisi',
+		id: 'test-subf2m',
+		name: 'Test Subf2m',
+		implementation: 'subf2m',
 		enabled: true,
 		priority: 1,
 		consecutiveFailures: 0,

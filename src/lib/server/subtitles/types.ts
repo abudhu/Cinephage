@@ -229,8 +229,6 @@ export function getLanguageName(code: string): string {
  */
 export const PROVIDER_IMPLEMENTATIONS = [
 	'opensubtitles',
-	'podnapisi',
-	'subscene',
 	'addic7ed',
 	'subdl',
 	'yifysubtitles',

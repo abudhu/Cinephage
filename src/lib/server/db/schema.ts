@@ -1148,7 +1148,7 @@ export const subtitleProviders = sqliteTable('subtitle_providers', {
 		.primaryKey()
 		.$defaultFn(() => randomUUID()),
 	name: text('name').notNull(),
-	// Provider type: 'opensubtitles', 'podnapisi', 'subscene', 'addic7ed'
+	// Provider type: 'opensubtitles', 'addic7ed', 'subdl', 'yifysubtitles', 'gestdown', 'subf2m'
 	implementation: text('implementation').notNull(),
 	enabled: integer('enabled', { mode: 'boolean' }).default(true),
 	// Priority for search order (lower = higher priority)

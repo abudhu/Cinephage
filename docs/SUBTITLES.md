@@ -1,14 +1,12 @@
 # Subtitle System
 
-Cinephage includes comprehensive subtitle management with 8 built-in providers and support for 80+ languages.
+Cinephage includes comprehensive subtitle management with 6 built-in providers and support for 80+ languages.
 
 ## Providers
 
 | Provider       | Type    | Features                        |
 | -------------- | ------- | ------------------------------- |
 | OpenSubtitles  | API     | Hash matching, largest database |
-| Podnapisi      | Scraper | Good coverage, hearing impaired |
-| Subscene       | Scraper | Large community database        |
 | Addic7ed       | Scraper | TV focus, multiple languages    |
 | SubDL          | API     | Modern API, good quality        |
 | YIFY Subtitles | Scraper | YTS movie focus                 |
@@ -23,20 +21,6 @@ Cinephage includes comprehensive subtitle management with 8 built-in providers a
 - Hash-based matching for accuracy
 - Requires free account and API key
 - Rate limited (20 requests/day on free tier)
-
-**Podnapisi**
-
-- No account required
-- Good for European languages
-- Hearing impaired subtitle support
-- Reliable uptime
-
-**Subscene**
-
-- Large community-contributed database
-- Manual subtitle verification
-- Multiple languages per release
-- May require CAPTCHA solving
 
 **Addic7ed**
 
@@ -236,8 +220,6 @@ Each provider has built-in rate limiting:
 | Provider      | Limit                        |
 | ------------- | ---------------------------- |
 | OpenSubtitles | 20/day (free), 200/day (VIP) |
-| Podnapisi     | 60/minute                    |
-| Subscene      | 30/minute                    |
 | Addic7ed      | 40/day                       |
 | SubDL         | 100/hour                     |
 | Others        | Provider-specific            |

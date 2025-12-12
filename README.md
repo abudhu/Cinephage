@@ -41,7 +41,7 @@ Cinephage consolidates four separate applications into one streamlined experienc
 | Quality Scoring    | In Progress  | 4 built-in profiles work; custom profiles incomplete |
 | Download Client    | Stable       | qBittorrent + SABnzbd                                |
 | Indexers           | In Progress  | 4 public indexers + Torznab/Newznab templates        |
-| Subtitles          | Stable       | 8 providers, 80+ languages                           |
+| Subtitles          | Stable       | 6 providers, 80+ languages                           |
 | Monitoring         | Experimental | 5 tasks coded, may have bugs                         |
 | Live TV/IPTV       | Not Started  | Planned for future                                   |
 
@@ -81,7 +81,7 @@ qBittorrent integration with categories, priority handling for recent releases, 
 Automatic searches for missing content, quality upgrades, new episodes, and cutoff unmet items. See [Monitoring](docs/MONITORING.md) for configuration.
 
 **Subtitles**<br>
-8 providers, 80+ languages, auto-search on import, and language profiles. See [Subtitles](docs/SUBTITLES.md) for setup.
+6 providers, 80+ languages, auto-search on import, and language profiles. See [Subtitles](docs/SUBTITLES.md) for setup.
 
 </td>
 <td width="55%">

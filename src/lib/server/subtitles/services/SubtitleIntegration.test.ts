@@ -43,9 +43,9 @@ describe('Subtitle System Integration', () => {
 			const implementations = factory.getSupportedImplementations();
 
 			expect(implementations).toContain('opensubtitles');
-			expect(implementations).toContain('podnapisi');
-			expect(implementations).toContain('subscene');
 			expect(implementations).toContain('addic7ed');
+			expect(implementations).toContain('subf2m');
+			expect(implementations).toContain('yifysubtitles');
 		});
 
 		it('should return provider definitions with required metadata', () => {
@@ -70,20 +70,20 @@ describe('Subtitle System Integration', () => {
 			expect(osDef!.requiresApiKey).toBe(true);
 		});
 
-		it('should correctly identify Podnapisi as not requiring API key', () => {
+		it('should correctly identify Subf2m as not requiring API key', () => {
 			const factory = getSubtitleProviderFactory();
-			const podDef = factory.getDefinition('podnapisi');
+			const subf2mDef = factory.getDefinition('subf2m');
 
-			expect(podDef).toBeDefined();
-			expect(podDef!.requiresApiKey).toBe(false);
+			expect(subf2mDef).toBeDefined();
+			expect(subf2mDef!.requiresApiKey).toBe(false);
 		});
 	});
 
 	describe('Provider Manager', () => {
 		it('should be able to create a provider configuration', async () => {
 			const config = await providerManager.createProvider({
-				name: 'Test Podnapisi',
-				implementation: 'podnapisi',
+				name: 'Test Subf2m',
+				implementation: 'subf2m',
 				enabled: false, // Disabled to avoid actual API calls in tests
 				priority: 50,
 				requestsPerMinute: 30
@@ -92,8 +92,8 @@ describe('Subtitle System Integration', () => {
 			testProviderId = config.id;
 
 			expect(config.id).toBeDefined();
-			expect(config.name).toBe('Test Podnapisi');
-			expect(config.implementation).toBe('podnapisi');
+			expect(config.name).toBe('Test Subf2m');
+			expect(config.implementation).toBe('subf2m');
 			expect(config.enabled).toBe(false);
 		});
 
@@ -104,7 +104,7 @@ describe('Subtitle System Integration', () => {
 
 			const config = await providerManager.getProvider(testProviderId);
 			expect(config).toBeDefined();
-			expect(config!.name).toBe('Test Podnapisi');
+			expect(config!.name).toBe('Test Subf2m');
 		});
 
 		it('should be able to get a provider instance', async () => {
@@ -229,12 +229,12 @@ describe('Subtitle System Integration', () => {
 			const factory = getSubtitleProviderFactory();
 			const defs = factory.getDefinitions();
 
-			// Verify we have our 4 core providers
+			// Verify we have our core providers
 			const implementations = defs.map((d) => d.implementation);
 			expect(implementations).toContain('opensubtitles');
-			expect(implementations).toContain('podnapisi');
-			expect(implementations).toContain('subscene');
 			expect(implementations).toContain('addic7ed');
+			expect(implementations).toContain('yifysubtitles');
+			expect(implementations).toContain('subf2m');
 		});
 	});
 });
@@ -257,12 +257,12 @@ describe('Provider Implementation Smoke Tests', () => {
 		expect(provider.id).toBe('test-os');
 	});
 
-	it('should be able to instantiate Podnapisi provider', () => {
+	it('should be able to instantiate Subf2m provider', () => {
 		const factory = getSubtitleProviderFactory();
 		const provider = factory.createProvider({
-			id: 'test-pod',
-			name: 'Test Podnapisi',
-			implementation: 'podnapisi',
+			id: 'test-subf2m',
+			name: 'Test Subf2m',
+			implementation: 'subf2m',
 			enabled: true,
 			priority: 1,
 			consecutiveFailures: 0,
@@ -270,15 +270,15 @@ describe('Provider Implementation Smoke Tests', () => {
 		});
 
 		expect(provider).toBeDefined();
-		expect(provider.id).toBe('test-pod');
+		expect(provider.id).toBe('test-subf2m');
 	});
 
-	it('should be able to instantiate Subscene provider', () => {
+	it('should be able to instantiate YIFY Subtitles provider', () => {
 		const factory = getSubtitleProviderFactory();
 		const provider = factory.createProvider({
-			id: 'test-sub',
-			name: 'Test Subscene',
-			implementation: 'subscene',
+			id: 'test-yify',
+			name: 'Test YIFY',
+			implementation: 'yifysubtitles',
 			enabled: true,
 			priority: 1,
 			consecutiveFailures: 0,
@@ -286,7 +286,7 @@ describe('Provider Implementation Smoke Tests', () => {
 		});
 
 		expect(provider).toBeDefined();
-		expect(provider.id).toBe('test-sub');
+		expect(provider.id).toBe('test-yify');
 	});
 
 	it('should be able to instantiate Addic7ed provider', () => {

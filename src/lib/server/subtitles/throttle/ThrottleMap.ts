@@ -65,16 +65,6 @@ export const PROVIDER_THROTTLE_OVERRIDES: Partial<
 		IPAddressBlocked: { duration: 1 * HOURS, description: '1 hour' }
 	},
 
-	podnapisi: {
-		TooManyRequests: { duration: 5 * MINUTES, description: '5 minutes' }
-	},
-
-	subscene: {
-		IPAddressBlocked: { duration: 6 * HOURS, description: '6 hours' },
-		TooManyRequests: { duration: 30 * MINUTES, description: '30 minutes' }
-	},
-
-	// New providers (to be implemented)
 	subdl: {
 		TooManyRequests: { duration: 5 * MINUTES, description: '5 minutes' },
 		DownloadLimitExceeded: { duration: 24 * HOURS, description: '24 hours' } // Daily reset

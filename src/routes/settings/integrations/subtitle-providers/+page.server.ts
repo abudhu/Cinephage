@@ -54,9 +54,11 @@ export const actions: Actions = {
 				name: providerData.name,
 				implementation: providerData.implementation as
 					| 'opensubtitles'
-					| 'podnapisi'
-					| 'subscene'
-					| 'addic7ed',
+					| 'addic7ed'
+					| 'subdl'
+					| 'yifysubtitles'
+					| 'gestdown'
+					| 'subf2m',
 				enabled: providerData.enabled,
 				priority: providerData.priority,
 				apiKey: providerData.apiKey,

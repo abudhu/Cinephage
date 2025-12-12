@@ -39,8 +39,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Native TypeScript indexer implementations (replaced by YAML definitions)
 - Old indexer registry and base classes
+- **Podnapisi subtitle provider** - Server no longer responding
+- **Subscene subtitle provider** - Blocked by CloudFlare protection
 
 ### Fixed
+
+- **Subf2m subtitle provider** - Updated CSS selectors to match current site structure
 
 - HLS streams starting from end instead of beginning (missing VOD markers)
 - HLS segment detection for providers using obfuscated URLs with fake extensions
@@ -83,7 +87,7 @@ Initial public preview release.
 
 #### Subtitle Management
 
-- Eight subtitle providers: OpenSubtitles, Podnapisi, Subscene, Addic7ed, SubDL, YIFY Subtitles, Gestdown, Subf2m
+- Six subtitle providers: OpenSubtitles, Addic7ed, SubDL, YIFY Subtitles, Gestdown, Subf2m
 - 150+ language support with regional variants
 - Language profile management
 - Automatic subtitle search on import

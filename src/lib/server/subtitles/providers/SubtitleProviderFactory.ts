@@ -8,8 +8,6 @@
 import type { ISubtitleProvider, ISubtitleProviderFactory, ProviderDefinition } from './interfaces';
 import type { SubtitleProviderConfig, ProviderImplementation } from '../types';
 import { OpenSubtitlesProvider } from './opensubtitles/OpenSubtitlesProvider';
-import { PodnapisiProvider } from './podnapisi/PodnapisiProvider';
-import { SubsceneProvider } from './subscene/SubsceneProvider';
 import { Addic7edProvider } from './addic7ed/Addic7edProvider';
 import { SubDLProvider } from './subdl/SubDLProvider';
 import { YIFYSubtitlesProvider } from './yifysubtitles/YIFYSubtitlesProvider';
@@ -24,8 +22,6 @@ type ProviderConstructor = new (config: SubtitleProviderConfig) => ISubtitleProv
 /** Registry of provider implementations */
 const PROVIDER_REGISTRY = new Map<string, ProviderConstructor>();
 PROVIDER_REGISTRY.set('opensubtitles', OpenSubtitlesProvider);
-PROVIDER_REGISTRY.set('podnapisi', PodnapisiProvider);
-PROVIDER_REGISTRY.set('subscene', SubsceneProvider);
 PROVIDER_REGISTRY.set('addic7ed', Addic7edProvider);
 PROVIDER_REGISTRY.set('subdl', SubDLProvider);
 PROVIDER_REGISTRY.set('yifysubtitles', YIFYSubtitlesProvider);
@@ -69,109 +65,6 @@ const PROVIDER_DEFINITIONS: Map<ProviderImplementation, ProviderDefinition> = ne
 					description: 'Optional: Required if username is provided'
 				}
 			]
-		}
-	],
-	[
-		'podnapisi',
-		{
-			implementation: 'podnapisi',
-			name: 'Podnapisi',
-			description: 'Slovenian subtitle database with excellent European language coverage.',
-			website: 'https://www.podnapisi.net',
-			requiresApiKey: false,
-			requiresCredentials: false,
-			supportedLanguages: [
-				'en',
-				'sl',
-				'hr',
-				'sr',
-				'bs',
-				'mk',
-				'bg',
-				'cs',
-				'sk',
-				'pl',
-				'hu',
-				'ro',
-				'de',
-				'es',
-				'fr',
-				'it',
-				'pt',
-				'nl',
-				'ru',
-				'el',
-				'tr',
-				'ar',
-				'he',
-				'vi',
-				'zh',
-				'ja',
-				'ko',
-				'sv',
-				'no',
-				'da',
-				'fi',
-				'uk',
-				'fa',
-				'id',
-				'th'
-			],
-			supportsHashSearch: false,
-			features: ['European languages', 'No API key required', 'Good TV show coverage'],
-			settings: []
-		}
-	],
-	[
-		'subscene',
-		{
-			implementation: 'subscene',
-			name: 'Subscene',
-			description: 'Large community-driven subtitle database with wide language support.',
-			website: 'https://subscene.com',
-			requiresApiKey: false,
-			requiresCredentials: false,
-			supportedLanguages: [
-				'en',
-				'es',
-				'fr',
-				'de',
-				'it',
-				'pt',
-				'nl',
-				'pl',
-				'ru',
-				'ar',
-				'he',
-				'tr',
-				'el',
-				'hu',
-				'ro',
-				'cs',
-				'sv',
-				'da',
-				'fi',
-				'no',
-				'ja',
-				'ko',
-				'zh',
-				'vi',
-				'th',
-				'id',
-				'ms',
-				'fa',
-				'hi',
-				'bn',
-				'uk',
-				'bg',
-				'hr',
-				'sr',
-				'sk',
-				'sl'
-			],
-			supportsHashSearch: false,
-			features: ['Large catalog', 'Community translations', 'Multi-language'],
-			settings: []
 		}
 	],
 	[

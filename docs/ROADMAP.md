@@ -243,7 +243,7 @@ Deeper integration with streaming services for availability tracking.
 
 Not Yet Started | Low | **Area**: Subtitles
 
-Expand subtitle provider support beyond the current 8 providers.
+Expand subtitle provider support beyond the current 6 providers.
 
 **Context**: More providers means better coverage for obscure content and languages.
 
