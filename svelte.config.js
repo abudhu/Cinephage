@@ -13,9 +13,9 @@ const config = {
 			// Externalize native modules that can't be bundled
 			external: ['better-sqlite3']
 		}),
-		// Disable CSRF origin check for self-hosted access via IP/LAN
+		// Trust all origins for self-hosted access via IP/LAN
 		csrf: {
-			checkOrigin: false
+			trustedOrigins: ['*']
 		}
 	},
 
