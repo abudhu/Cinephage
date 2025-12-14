@@ -185,6 +185,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ---
 
+## Contributors
+
+<a href="https://github.com/MoldyTaint/Cinephage/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=MoldyTaint/Cinephage" />
+</a>
+
+---
+
 ## Acknowledgments
 
 Cinephage is an original implementation that stands on the shoulders of giants. The architecture draws inspiration from [Radarr](https://github.com/Radarr/Radarr) and [Sonarr](https://github.com/Sonarr/Sonarr) for download management, monitoring, and quality handling logic. The indexer system, including Cardigann format support and health tracking, is inspired by [Prowlarr](https://github.com/Prowlarr/Prowlarr). Subtitle provider architecture comes from [Bazarr](https://github.com/morpheus65535/bazarr), and modern UI patterns from [Overseerr](https://github.com/sct/overseerr).
