@@ -1,40 +1,58 @@
 ## Summary
 
-Brief description of the changes in this PR.
-
-## Changes
-
-- List of changes made
-- Another change
-- etc.
+<!-- Brief description of what this PR does -->
 
 ## Related Issues
 
-Fixes #(issue number) or Relates to #(issue number)
+<!-- Link to related issues: Fixes #123, Relates to #456 -->
 
 ## Type of Change
 
-- [ ] Bug fix (non-breaking change that fixes an issue)
-- [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
 - [ ] Refactoring (no functional changes)
+- [ ] Documentation
+- [ ] Dependency update
+- [ ] Other: <!-- describe -->
+
+## Changes Made
+
+<!-- List the specific changes made in this PR -->
+
+-
+-
+-
+
+## Areas Affected
+
+<!-- Check all that apply -->
+
+- [ ] UI/Frontend
+- [ ] API/Backend
+- [ ] Indexers
+- [ ] Download Clients
+- [ ] Library Management
+- [ ] Database/Schema
+- [ ] Subtitles
+- [ ] Documentation
 
 ## Testing
 
-- [ ] I have tested these changes locally
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] All new and existing tests pass (`npm run test`)
+- [ ] Tested locally
+- [ ] Added/updated tests
+- [ ] All tests pass (`npm run test`)
 - [ ] Type checking passes (`npm run check`)
 
 ## Checklist
 
-- [ ] My code follows the project's code style
-- [ ] I have run `npm run format` to format my code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation (if applicable)
-- [ ] My changes generate no new warnings
+- [ ] Code follows project conventions
+- [ ] Ran `npm run format`
+- [ ] Commit messages follow [conventional commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, etc.)
+- [ ] Svelte 5 runes used correctly (`$state`, `$derived`, `$effect`, `$props`)
+- [ ] No new warnings in console or build output
+- [ ] Documentation updated (if applicable)
 
-## Screenshots (if applicable)
+## Screenshots
 
-Add screenshots to demonstrate UI changes.
+<!-- For UI changes, include before/after screenshots -->

@@ -1,0 +1,17 @@
+# Default owner for everything
+* @MoldyTaint
+
+# Indexer system
+/src/lib/server/indexers/ @MoldyTaint
+/data/indexers/ @MoldyTaint
+
+# Documentation
+/docs/ @MoldyTaint
+/*.md @MoldyTaint
+
+# Database schema
+/src/lib/server/db/schema.ts @MoldyTaint
+/drizzle/ @MoldyTaint
+
+# GitHub configuration
+/.github/ @MoldyTaint

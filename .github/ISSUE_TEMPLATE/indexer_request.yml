@@ -1,0 +1,109 @@
+name: Indexer Request
+description: Request support for a new indexer/tracker
+title: "[Indexer]: "
+labels: ["indexer-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping expand Cinephage's indexer support! Please provide as much detail as possible.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have searched existing issues to ensure this indexer has not already been requested
+          required: true
+        - label: I have verified this indexer is currently active and accepting members
+          required: true
+
+  - type: input
+    id: name
+    attributes:
+      label: Indexer Name
+      placeholder: "e.g., ExampleTracker"
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: Indexer URL
+      description: Main URL of the indexer (will be kept confidential for private trackers)
+      placeholder: "https://example.com"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Indexer Type
+      options:
+        - Public (no account required)
+        - Semi-private (free registration)
+        - Private (invite only)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol
+      options:
+        - Torrent
+        - Usenet (NZB)
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Primary Category
+      description: What type of content does this indexer primarily host?
+      options:
+        - General (all content types)
+        - Movies
+        - TV Shows
+        - Anime
+        - Music
+        - Games
+        - Software
+        - Books/Comics
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: access
+    attributes:
+      label: Testing Access
+      description: Can you help test this indexer?
+      options:
+        - label: I have an account and can help test the implementation
+        - label: I can provide API documentation or help with the definition
+
+  - type: input
+    id: existing_def
+    attributes:
+      label: Existing Definition
+      description: Link to Prowlarr/Jackett/Cardigann definition if one exists
+      placeholder: "https://github.com/..."
+
+  - type: textarea
+    id: api_info
+    attributes:
+      label: API Information
+      description: Any information about the indexer's API (search endpoints, capabilities, etc.)
+      placeholder: |
+        - Search endpoint: /api/search
+        - Supports categories: yes
+        - Has IMDB search: yes
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Notes
+      description: Any other relevant information about this indexer
+      placeholder: "Special authentication, rate limits, known quirks, etc."

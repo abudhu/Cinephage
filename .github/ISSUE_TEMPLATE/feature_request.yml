@@ -1,0 +1,107 @@
+name: Feature Request
+description: Suggest a new feature or improvement for Cinephage
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! Please fill out the form below.
+
+        For early-stage ideas or brainstorming, consider starting a [Discussion](https://github.com/MoldyTaint/Cinephage/discussions/categories/ideas) first.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have searched existing issues and discussions to ensure this feature has not already been requested
+          required: true
+        - label: This is a single feature request (not multiple features bundled together)
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature Area
+      description: Which part of Cinephage would this feature affect?
+      options:
+        - UI/Frontend
+        - API/Backend
+        - Indexers/Search
+        - Download Clients
+        - Library Management
+        - Subtitles
+        - Monitoring/Automation
+        - Quality Profiles
+        - Notifications
+        - Import/Export
+        - Integration (external services)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact Level
+      description: How important is this feature to you?
+      options:
+        - Nice to have
+        - Would improve my workflow
+        - Important for my use case
+        - Critical - blocking my adoption of Cinephage
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is this feature related to a problem? What are you trying to accomplish?
+      placeholder: "I'm trying to... but currently I can't because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like
+      placeholder: "I would like to be able to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: "I've tried... but it doesn't work because..."
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use Case
+      description: Describe how this feature would be used and who would benefit
+      placeholder: "This would help users who..."
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples from Other Software
+      description: Does any similar software implement this feature? How do they do it?
+      placeholder: "Radarr/Sonarr/Plex does this by..."
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups or Screenshots
+      description: If applicable, add mockups or screenshots to illustrate your idea
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information that might be helpful

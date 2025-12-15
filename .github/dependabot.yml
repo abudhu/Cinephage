@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    assignees:
+      - "MoldyTaint"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      svelte:
+        patterns:
+          - "svelte*"
+          - "@sveltejs/*"
+      tailwind:
+        patterns:
+          - "tailwindcss*"
+          - "daisyui*"
+          - "@tailwindcss/*"
+      drizzle:
+        patterns:
+          - "drizzle-*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    assignees:
+      - "MoldyTaint"
+    commit-message:
+      prefix: "chore(ci)"
