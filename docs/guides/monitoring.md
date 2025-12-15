@@ -9,7 +9,7 @@ Cinephage includes automated monitoring tasks that run in the background to keep
 ## Task Overview
 
 | Task                    | Default Interval | Description                                         |
-|-------------------------|------------------|-----------------------------------------------------|
+| ----------------------- | ---------------- | --------------------------------------------------- |
 | Missing Content         | 24 hours         | Searches for movies/series without files            |
 | Upgrade Monitoring      | Weekly           | Detects when better quality is available            |
 | New Episode Detection   | 1 hour           | Monitors for newly released episodes                |

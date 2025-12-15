@@ -54,9 +54,9 @@ Define where media files are stored.
 
 If your download client and Cinephage see different paths for the same storage:
 
-| Download Client Path  | Cinephage Path        |
-|-----------------------|-----------------------|
-| `/downloads/movies`   | `/mnt/media/movies`   |
+| Download Client Path | Cinephage Path      |
+| -------------------- | ------------------- |
+| `/downloads/movies`  | `/mnt/media/movies` |
 
 Configure path mappings in **Settings > Integrations > Download Clients**.
 

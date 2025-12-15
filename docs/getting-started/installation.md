@@ -10,18 +10,18 @@ This guide covers prerequisites and installation steps for Cinephage.
 
 ### Required
 
-| Component   | Minimum Version | Notes                                |
-|-------------|-----------------|--------------------------------------|
-| Node.js     | 20+             | LTS version recommended              |
-| npm         | 10+             | Comes with Node.js                   |
-| qBittorrent | 4.5+            | WebUI must be enabled                |
-| TMDB API    | -               | Free key from themoviedb.org         |
+| Component   | Minimum Version | Notes                        |
+| ----------- | --------------- | ---------------------------- |
+| Node.js     | 20+             | LTS version recommended      |
+| npm         | 10+             | Comes with Node.js           |
+| qBittorrent | 4.5+            | WebUI must be enabled        |
+| TMDB API    | -               | Free key from themoviedb.org |
 
 ### Optional
 
-| Component | Purpose                                         |
-|-----------|-------------------------------------------------|
-| ffprobe   | Media info extraction (resolution, codecs, etc.)|
+| Component | Purpose                                          |
+| --------- | ------------------------------------------------ |
+| ffprobe   | Media info extraction (resolution, codecs, etc.) |
 
 ---
 
@@ -30,7 +30,7 @@ This guide covers prerequisites and installation steps for Cinephage.
 ### Minimum
 
 | Resource   | Minimum          |
-|------------|------------------|
+| ---------- | ---------------- |
 | RAM        | 512 MB           |
 | Disk Space | 100 MB + library |
 | CPU        | 1 core           |
@@ -38,7 +38,7 @@ This guide covers prerequisites and installation steps for Cinephage.
 ### Recommended
 
 | Resource   | Recommended      |
-|------------|------------------|
+| ---------- | ---------------- |
 | RAM        | 1 GB             |
 | Disk Space | 500 MB + library |
 | CPU        | 2+ cores         |
@@ -83,11 +83,13 @@ The application will be available at http://localhost:3000.
 ffprobe provides media info extraction for resolution, codec, and audio track details.
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt install ffmpeg
 ```
 
 **macOS:**
+
 ```bash
 brew install ffmpeg
 ```

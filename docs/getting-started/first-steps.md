@@ -77,11 +77,11 @@ If "Search on Add" was enabled, Cinephage automatically searches. Otherwise:
 
 Cinephage uses cascading monitoring for TV:
 
-| Series | Season | Episode | Result |
-|--------|--------|---------|--------|
-| Monitored | Monitored | Monitored | Will search |
-| Monitored | Unmonitored | Monitored | Will NOT search |
-| Unmonitored | Monitored | Monitored | Will NOT search |
+| Series      | Season      | Episode   | Result          |
+| ----------- | ----------- | --------- | --------------- |
+| Monitored   | Monitored   | Monitored | Will search     |
+| Monitored   | Unmonitored | Monitored | Will NOT search |
+| Unmonitored | Monitored   | Monitored | Will NOT search |
 
 All three levels must be monitored for an episode to be searched.
 
@@ -109,13 +109,13 @@ When new episodes air:
 
 View current downloads at **Activity > Queue**:
 
-| Status | Meaning |
-|--------|---------|
-| Queued | Waiting for download client |
-| Downloading | In progress |
-| Importing | Download complete, processing |
-| Completed | Successfully imported |
-| Failed | Error occurred |
+| Status      | Meaning                       |
+| ----------- | ----------------------------- |
+| Queued      | Waiting for download client   |
+| Downloading | In progress                   |
+| Importing   | Download complete, processing |
+| Completed   | Successfully imported         |
+| Failed      | Error occurred                |
 
 ### Queue Actions
 
@@ -129,12 +129,12 @@ View current downloads at **Activity > Queue**:
 
 Each release is scored based on multiple factors:
 
-| Factor | Max Points |
-|--------|------------|
-| Resolution + Source | 20,000 |
-| Audio Codec | 2,000 |
-| HDR Format | 1,000 |
-| Release Group | 500 |
+| Factor              | Max Points |
+| ------------------- | ---------- |
+| Resolution + Source | 20,000     |
+| Audio Codec         | 2,000      |
+| HDR Format          | 1,000      |
+| Release Group       | 500        |
 
 Higher scores indicate better quality. See [Quality Profiles](../guides/quality-profiles.md) for details.
 

@@ -9,7 +9,7 @@ Complete reference for Cinephage environment configuration. Copy `.env.example` 
 ## Server Configuration
 
 | Variable | Default   | Description                                                 |
-|----------|-----------|-------------------------------------------------------------|
+| -------- | --------- | ----------------------------------------------------------- |
 | `HOST`   | `0.0.0.0` | Host address to bind (use `127.0.0.1` behind reverse proxy) |
 | `PORT`   | `3000`    | Port to listen on                                           |
 | `ORIGIN` | -         | Trusted origin for CSRF (e.g., `http://192.168.1.100:3000`) |
@@ -19,7 +19,7 @@ Complete reference for Cinephage environment configuration. Copy `.env.example` 
 ## Logging Configuration
 
 | Variable          | Default  | Description                           |
-|-------------------|----------|---------------------------------------|
+| ----------------- | -------- | ------------------------------------- |
 | `LOG_DIR`         | `./logs` | Log file directory                    |
 | `LOG_MAX_SIZE_MB` | `10`     | Maximum log file size before rotation |
 | `LOG_MAX_FILES`   | `5`      | Number of rotated logs to keep        |
@@ -30,7 +30,7 @@ Complete reference for Cinephage environment configuration. Copy `.env.example` 
 ## Media Info
 
 | Variable       | Default     | Description            |
-|----------------|-------------|------------------------|
+| -------------- | ----------- | ---------------------- |
 | `FFPROBE_PATH` | System PATH | Path to ffprobe binary |
 
 ---
@@ -40,7 +40,7 @@ Complete reference for Cinephage environment configuration. Copy `.env.example` 
 Controls concurrency for background tasks.
 
 | Variable                | Default   | Description                       |
-|-------------------------|-----------|-----------------------------------|
+| ----------------------- | --------- | --------------------------------- |
 | `WORKER_MAX_STREAMS`    | `10`      | Max concurrent stream workers     |
 | `WORKER_MAX_IMPORTS`    | `5`       | Max concurrent import workers     |
 | `WORKER_MAX_SCANS`      | `2`       | Max concurrent scan workers       |
@@ -53,7 +53,7 @@ Controls concurrency for background tasks.
 ## Graceful Shutdown
 
 | Variable           | Default | Description                              |
-|--------------------|---------|------------------------------------------|
+| ------------------ | ------- | ---------------------------------------- |
 | `SHUTDOWN_TIMEOUT` | `30`    | Seconds to wait for connections to close |
 
 ---

@@ -268,7 +268,7 @@ Caddy automatically provisions and renews SSL certificates. No additional config
 ### Production Environment Variables
 
 | Variable          | Recommended Value     | Description                                             |
-|-------------------|-----------------------|---------------------------------------------------------|
+| ----------------- | --------------------- | ------------------------------------------------------- |
 | `HOST`            | `127.0.0.1`           | Bind to localhost only (reverse proxy handles external) |
 | `PORT`            | `3000`                | Application port                                        |
 | `ORIGIN`          | `https://your.domain` | Your public URL for CSRF protection                     |

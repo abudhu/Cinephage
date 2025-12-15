@@ -51,10 +51,7 @@
 </script>
 
 {#if status !== 'idle'}
-	<div
-		class="flex items-center gap-2 {config.class} {textSizes[size]}"
-		class:inline-flex={inline}
-	>
+	<div class="flex items-center gap-2 {config.class} {textSizes[size]}" class:inline-flex={inline}>
 		{#if showIcon && config.icon}
 			<svelte:component
 				this={config.icon}

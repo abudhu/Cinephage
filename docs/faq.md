@@ -15,6 +15,7 @@ Cinephage is a self-hosted media management application that combines the functi
 ### What stage of development is Cinephage in?
 
 Cinephage is currently in **Alpha**. This means:
+
 - Core features work but may have bugs
 - APIs and configuration may change between updates
 - Feedback and issue reports are welcome
@@ -30,11 +31,13 @@ Yes. Cinephage is open source software licensed under GNU GPL v3.
 ### What are the system requirements?
 
 **Minimum:**
+
 - Node.js 20+
 - 512 MB RAM
 - 100 MB disk space + library
 
 **Recommended:**
+
 - Node.js 20+
 - 1 GB RAM
 - 500 MB disk space + library
@@ -43,6 +46,7 @@ Yes. Cinephage is open source software licensed under GNU GPL v3.
 ### Which download clients are supported?
 
 Currently supported:
+
 - qBittorrent (torrent)
 - SABnzbd (usenet)
 - NZBGet (usenet)
@@ -60,9 +64,11 @@ Yes. A free TMDB API key is required for metadata. Get one at [themoviedb.org](h
 ### How do I change the port?
 
 Edit `.env`:
+
 ```
 PORT=8080
 ```
+
 Then restart Cinephage.
 
 ### How do I reset everything?
@@ -88,6 +94,7 @@ Not recommended. SQLite does not handle multiple writers well. Use a single inst
 ### How do I backup my configuration?
 
 Important files to backup:
+
 - `data/cinephage.db` - All settings, library, queue
 - `.env` - Environment configuration
 - `data/indexers/definitions/` - Custom indexer definitions
@@ -106,6 +113,7 @@ Important files to backup:
 ### How does file matching work?
 
 Cinephage matches files using:
+
 1. External IDs in folder/file names (most reliable)
 2. Parsed movie/series names
 3. Year information
@@ -124,18 +132,21 @@ Yes. If your library uses external IDs in folder names (common with Radarr/Sonar
 ### Which indexers work out of the box?
 
 Public indexers that work immediately:
+
 - BitSearch
 - EZTV
 - Knaben
 - YTS
 
 Private trackers requiring configuration:
+
 - OldToons.World (API key)
 - SceneTime (cookie auth)
 
 ### How do I add indexers not built-in?
 
 Use Torznab/Newznab integration:
+
 1. Set up Prowlarr or Jackett
 2. Add indexers to Prowlarr/Jackett
 3. In Cinephage, add a Torznab indexer pointing to Prowlarr/Jackett
@@ -143,6 +154,7 @@ Use Torznab/Newznab integration:
 ### Why is an indexer showing as disabled?
 
 Indexers are auto-disabled after repeated failures. Check:
+
 1. Indexer health in **Settings > Integrations > Indexers**
 2. Whether the site is accessible
 3. API key validity (for private trackers)
@@ -170,6 +182,7 @@ Re-enable manually after resolving the issue.
 ### How does quality upgrade work?
 
 When monitoring is enabled:
+
 1. Cinephage tracks your file's quality score
 2. Periodically searches for better releases
 3. If a better release is found (above minimum improvement threshold)
@@ -208,6 +221,7 @@ When monitoring is enabled:
 ### How often does Cinephage search for content?
 
 Default intervals:
+
 - Missing content: Every 24 hours
 - Quality upgrades: Weekly
 - New episodes: Every hour
@@ -218,6 +232,7 @@ Configure in **Settings > Tasks**.
 ### Why isn't a monitored item being searched?
 
 Check cascading monitoring for TV:
+
 - Series must be monitored
 - Season must be monitored
 - Episode must be monitored

@@ -170,14 +170,15 @@ Heavy services use lazy initialization via getters:
 let externalIdService: ExternalIdService | null = null;
 
 export function getExternalIdService() {
-    if (!externalIdService) {
-        externalIdService = new ExternalIdService(db);
-    }
-    return externalIdService;
+	if (!externalIdService) {
+		externalIdService = new ExternalIdService(db);
+	}
+	return externalIdService;
 }
 ```
 
 This pattern is used for:
+
 - `getRootFolderService()`
 - `getDownloadClientManager()`
 - `getExternalIdService()`
@@ -199,6 +200,7 @@ flowchart LR
 ```
 
 Specifications include:
+
 - `MovieMonitoredSpecification`
 - `EpisodeMonitoredSpecification`
 - `MissingContentSpecification`
@@ -277,11 +279,11 @@ Releases are scored using 100+ format attributes:
 ```typescript
 // Simplified scoring flow
 const score =
-    getResolutionScore(release) +      // 0-20000
-    getAudioScore(release) +           // 0-2000
-    getHDRScore(release) +             // 0-1000
-    getReleaseGroupScore(release) +    // 0-500
-    getPenalties(release);             // negative values
+	getResolutionScore(release) + // 0-20000
+	getAudioScore(release) + // 0-2000
+	getHDRScore(release) + // 0-1000
+	getReleaseGroupScore(release) + // 0-500
+	getPenalties(release); // negative values
 ```
 
 The scoring database from [Dictionarry](https://github.com/Dictionarry-Hub/database) provides format definitions.
@@ -292,14 +294,15 @@ The scoring database from [Dictionarry](https://github.com/Dictionarry-Hub/datab
 
 Workers handle concurrent operations with configurable limits:
 
-| Worker Type | Default Max | Purpose |
-|-------------|-------------|---------|
-| Streams     | 10          | Stream resolution |
-| Imports     | 5           | File imports |
-| Scans       | 2           | Library scans |
+| Worker Type | Default Max | Purpose            |
+| ----------- | ----------- | ------------------ |
+| Streams     | 10          | Stream resolution  |
+| Imports     | 5           | File imports       |
+| Scans       | 2           | Library scans      |
 | Monitoring  | 5           | Automated searches |
 
 Configure via environment variables:
+
 ```
 WORKER_MAX_STREAMS=10
 WORKER_MAX_IMPORTS=5
@@ -313,16 +316,16 @@ WORKER_MAX_MONITORING=5
 
 API routes follow RESTful patterns under `/api/`:
 
-| Category   | Routes | Purpose |
-|------------|--------|---------|
-| Discovery  | 3      | TMDB search/browse |
-| Library    | 14     | Movies, series, episodes |
-| Search     | 1      | Multi-indexer search |
-| Indexers   | 5      | Indexer configuration |
+| Category   | Routes | Purpose                   |
+| ---------- | ------ | ------------------------- |
+| Discovery  | 3      | TMDB search/browse        |
+| Library    | 14     | Movies, series, episodes  |
+| Search     | 1      | Multi-indexer search      |
+| Indexers   | 5      | Indexer configuration     |
 | Queue      | 6      | Download queue management |
-| Subtitles  | 15     | Subtitle operations |
-| Monitoring | 8      | Automated tasks |
-| Streaming  | 8      | Stream resolution |
+| Subtitles  | 15     | Subtitle operations       |
+| Monitoring | 8      | Automated tasks           |
+| Streaming  | 8      | Stream resolution         |
 
 See [API Reference](../reference/api.md) for endpoint documentation.
 
@@ -336,25 +339,26 @@ The frontend uses Svelte 5's runes system:
 
 ```svelte
 <script lang="ts">
-    // Props
-    let { data } = $props();
+	// Props
+	let { data } = $props();
 
-    // Reactive state
-    let value = $state('');
+	// Reactive state
+	let value = $state('');
 
-    // Computed/derived
-    const computed = $derived(value.length);
+	// Computed/derived
+	const computed = $derived(value.length);
 
-    // Side effects
-    $effect(() => {
-        console.log('Value changed:', value);
-    });
+	// Side effects
+	$effect(() => {
+		console.log('Value changed:', value);
+	});
 </script>
 ```
 
 ### Component Organization
 
 Components are organized by feature:
+
 - `/lib/components/discover/` - Discovery UI
 - `/lib/components/library/` - Library management
 - `/lib/components/search/` - Search interface

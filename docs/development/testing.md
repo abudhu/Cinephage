@@ -45,14 +45,14 @@ npm run test -- src/lib/server/scoring/scoring.test.ts
 
 Test the specification pattern implementations:
 
-| Specification | Test Cases |
-|---------------|------------|
-| MovieMonitoredSpecification | Monitored movie accepts, unmonitored rejects |
-| EpisodeMonitoredSpecification | Cascading logic (series/season/episode) |
-| MissingContentSpecification | No file accepts, has file rejects |
-| CutoffUnmetSpecification | Below/at/above cutoff, upgrades disabled |
-| UpgradeableSpecification | Quality improvement thresholds |
-| NewEpisodeSpecification | Air date window validation |
+| Specification                 | Test Cases                                   |
+| ----------------------------- | -------------------------------------------- |
+| MovieMonitoredSpecification   | Monitored movie accepts, unmonitored rejects |
+| EpisodeMonitoredSpecification | Cascading logic (series/season/episode)      |
+| MissingContentSpecification   | No file accepts, has file rejects            |
+| CutoffUnmetSpecification      | Below/at/above cutoff, upgrades disabled     |
+| UpgradeableSpecification      | Quality improvement thresholds               |
+| NewEpisodeSpecification       | Air date window validation                   |
 
 ### 2. Search Orchestration
 
@@ -101,38 +101,38 @@ Test the monitoring scheduler:
 
 #### Movie Monitoring Specification
 
-| Test Case | Movie Monitored | Expected Result |
-|-----------|-----------------|-----------------|
-| Monitored movie | true | Accept |
-| Unmonitored movie | false | Reject (NOT_MONITORED) |
+| Test Case         | Movie Monitored | Expected Result        |
+| ----------------- | --------------- | ---------------------- |
+| Monitored movie   | true            | Accept                 |
+| Unmonitored movie | false           | Reject (NOT_MONITORED) |
 
 #### Episode Monitoring Specification (Cascading)
 
-| Test Case | Series | Season | Episode | Expected Result |
-|-----------|--------|--------|---------|-----------------|
-| All monitored | true | true | true | Accept |
-| Series unmonitored | false | true | true | Reject (SERIES_NOT_MONITORED) |
-| Season unmonitored | true | false | true | Reject (SEASON_NOT_MONITORED) |
-| Episode unmonitored | true | true | false | Reject (NOT_MONITORED) |
+| Test Case           | Series | Season | Episode | Expected Result               |
+| ------------------- | ------ | ------ | ------- | ----------------------------- |
+| All monitored       | true   | true   | true    | Accept                        |
+| Series unmonitored  | false  | true   | true    | Reject (SERIES_NOT_MONITORED) |
+| Season unmonitored  | true   | false  | true    | Reject (SEASON_NOT_MONITORED) |
+| Episode unmonitored | true   | true   | false   | Reject (NOT_MONITORED)        |
 
 #### Cutoff Unmet Specification
 
-| Test Case | Upgrades Allowed | Cutoff Score | File Score | Expected Result |
-|-----------|------------------|--------------|------------|-----------------|
-| Below cutoff | true | 100 | 50 | Accept |
-| At cutoff | true | 100 | 100 | Reject (ALREADY_AT_CUTOFF) |
-| Above cutoff | true | 100 | 150 | Reject (ALREADY_AT_CUTOFF) |
-| No cutoff | true | 0 | 50 | Accept |
-| Upgrades disabled | false | 100 | 50 | Reject (UPGRADES_NOT_ALLOWED) |
+| Test Case         | Upgrades Allowed | Cutoff Score | File Score | Expected Result               |
+| ----------------- | ---------------- | ------------ | ---------- | ----------------------------- |
+| Below cutoff      | true             | 100          | 50         | Accept                        |
+| At cutoff         | true             | 100          | 100        | Reject (ALREADY_AT_CUTOFF)    |
+| Above cutoff      | true             | 100          | 150        | Reject (ALREADY_AT_CUTOFF)    |
+| No cutoff         | true             | 0            | 50         | Accept                        |
+| Upgrades disabled | false            | 100          | 50         | Reject (UPGRADES_NOT_ALLOWED) |
 
 #### Upgradeable Specification
 
-| Test Case | Existing Score | New Score | Min Increment | Cutoff | Expected |
-|-----------|----------------|-----------|---------------|--------|----------|
-| Better quality | 50 | 100 | 10 | 150 | Accept |
-| Small improvement | 50 | 55 | 10 | 150 | Reject (IMPROVEMENT_TOO_SMALL) |
-| Worse quality | 100 | 50 | 10 | 150 | Reject (QUALITY_NOT_BETTER) |
-| Exceeds cutoff | 50 | 160 | 10 | 150 | Reject (ALREADY_AT_CUTOFF) |
+| Test Case         | Existing Score | New Score | Min Increment | Cutoff | Expected                       |
+| ----------------- | -------------- | --------- | ------------- | ------ | ------------------------------ |
+| Better quality    | 50             | 100       | 10            | 150    | Accept                         |
+| Small improvement | 50             | 55        | 10            | 150    | Reject (IMPROVEMENT_TOO_SMALL) |
+| Worse quality     | 100            | 50        | 10            | 150    | Reject (QUALITY_NOT_BETTER)    |
+| Exceeds cutoff    | 50             | 160       | 10            | 150    | Reject (ALREADY_AT_CUTOFF)     |
 
 ---
 

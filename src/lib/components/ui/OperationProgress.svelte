@@ -64,9 +64,7 @@
 		<!-- Progress bar -->
 		<div class="h-2 w-full overflow-hidden rounded-full bg-base-300">
 			<div
-				class="h-full transition-all duration-300 {stats.error > 0
-					? 'bg-warning'
-					: 'bg-primary'}"
+				class="h-full transition-all duration-300 {stats.error > 0 ? 'bg-warning' : 'bg-primary'}"
 				style="width: {progress}%"
 			></div>
 		</div>

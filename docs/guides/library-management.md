@@ -58,8 +58,8 @@ Root folders define where your media is stored.
 
 If your download client sees different paths than Cinephage:
 
-| Download Client | Cinephage | Action |
-|-----------------|-----------|--------|
+| Download Client     | Cinephage           | Action           |
+| ------------------- | ------------------- | ---------------- |
 | `/downloads/movies` | `/mnt/media/movies` | Add path mapping |
 
 Configure in **Settings > Integrations > Download Clients**.
@@ -84,24 +84,28 @@ Cinephage uses several methods to identify content:
 For guaranteed matching, include external IDs in folder or file names:
 
 **Movies:**
+
 ```
 Inception {tmdb-27205}/Inception (2010).mkv
 The.Godfather.1972.tt0068646.1080p.BluRay.mkv
 ```
 
 **TV Shows:**
+
 ```
 Breaking Bad {tvdb-81189}/Season 01/Breaking Bad - S01E01.mkv
 Game of Thrones [imdb-tt0944947]/Season 01/...
 ```
 
 **Supported formats:**
+
 - `{id-12345}` - Curly braces
 - `[id-12345]` - Square brackets
 - `.id-12345.` - Dots
 - `id-12345` - Plain
 
 **Supported ID types:**
+
 - `tmdb-` - TMDB ID (movies and TV)
 - `tvdb-` - TVDB ID (TV shows)
 - `imdb-` or `tt` - IMDB ID
@@ -111,12 +115,14 @@ Game of Thrones [imdb-tt0944947]/Season 01/...
 If no external ID is found, Cinephage parses names:
 
 **Movies:**
+
 ```
 Movie Name (Year)/Movie Name (Year) [Quality].mkv
 Movie.Name.Year.Quality.Group.mkv
 ```
 
 **TV Shows:**
+
 ```
 Series Name/Season 01/Series Name - S01E01 - Episode Title.mkv
 Series.Name.S01E01.Episode.Title.Quality.mkv
@@ -180,11 +186,13 @@ If ffprobe is not available:
 Cinephage organizes imported files using naming templates:
 
 **Movies:**
+
 ```
 {Movie Title} ({Year})/{Movie Title} ({Year}) - {Quality}.{ext}
 ```
 
 **TV Shows:**
+
 ```
 {Series Title}/Season {Season}/
 {Series Title} - S{Season}E{Episode} - {Episode Title}.{ext}
@@ -198,15 +206,15 @@ Cinephage organizes imported files using naming templates:
 
 ### Available Tokens
 
-| Token | Description | Example |
-|-------|-------------|---------|
-| `{Movie Title}` | Movie name | Inception |
-| `{Year}` | Release year | 2010 |
-| `{Quality}` | Quality string | 1080p BluRay |
-| `{Series Title}` | Series name | Breaking Bad |
-| `{Season}` | Season number | 01 |
-| `{Episode}` | Episode number | 01 |
-| `{Episode Title}` | Episode name | Pilot |
+| Token             | Description    | Example      |
+| ----------------- | -------------- | ------------ |
+| `{Movie Title}`   | Movie name     | Inception    |
+| `{Year}`          | Release year   | 2010         |
+| `{Quality}`       | Quality string | 1080p BluRay |
+| `{Series Title}`  | Series name    | Breaking Bad |
+| `{Season}`        | Season number  | 01           |
+| `{Episode}`       | Episode number | 01           |
+| `{Episode Title}` | Episode name   | Pilot        |
 
 ---
 
@@ -267,6 +275,7 @@ sqlite3 data/cinephage.db "VACUUM;"
 ### Log Rotation
 
 Library scan logs rotate automatically based on settings:
+
 - `LOG_MAX_SIZE_MB`: Max file size before rotation
 - `LOG_MAX_FILES`: Number of log files to keep
 

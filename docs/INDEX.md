@@ -27,13 +27,13 @@ New to Cinephage? Start here:
 
 Detailed guides for each feature:
 
-| Guide | Description |
-|-------|-------------|
-| [Library Management](guides/library-management.md) | Scanning, matching, organizing media files |
-| [Indexers](guides/indexers.md) | Built-in indexers, Torznab/Newznab, custom definitions |
-| [Quality Profiles](guides/quality-profiles.md) | Scoring system, built-in profiles, customization |
-| [Subtitles](guides/subtitles.md) | Providers, language profiles, auto-download |
-| [Monitoring](guides/monitoring.md) | Automated tasks, scheduling, triggers |
+| Guide                                              | Description                                            |
+| -------------------------------------------------- | ------------------------------------------------------ |
+| [Library Management](guides/library-management.md) | Scanning, matching, organizing media files             |
+| [Indexers](guides/indexers.md)                     | Built-in indexers, Torznab/Newznab, custom definitions |
+| [Quality Profiles](guides/quality-profiles.md)     | Scoring system, built-in profiles, customization       |
+| [Subtitles](guides/subtitles.md)                   | Providers, language profiles, auto-download            |
+| [Monitoring](guides/monitoring.md)                 | Automated tasks, scheduling, triggers                  |
 
 ---
 
@@ -47,12 +47,12 @@ Detailed guides for each feature:
 
 For contributors and those wanting to understand the internals:
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](development/architecture.md) | System overview, patterns, diagrams |
-| [Contributing](development/contributing.md) | Development setup, workflow, conventions |
-| [Monitoring Internals](development/monitoring-internals.md) | Specification pattern, task logic |
-| [Testing](development/testing.md) | Test plan and guidelines |
+| Document                                                    | Description                              |
+| ----------------------------------------------------------- | ---------------------------------------- |
+| [Architecture](development/architecture.md)                 | System overview, patterns, diagrams      |
+| [Contributing](development/contributing.md)                 | Development setup, workflow, conventions |
+| [Monitoring Internals](development/monitoring-internals.md) | Specification pattern, task logic        |
+| [Testing](development/testing.md)                           | Test plan and guidelines                 |
 
 ---
 

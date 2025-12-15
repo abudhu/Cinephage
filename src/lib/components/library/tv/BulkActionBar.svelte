@@ -21,11 +21,7 @@
 			</span>
 
 			<div class="flex items-center gap-2">
-				<button
-					class="btn gap-2 btn-sm btn-primary"
-					onclick={onSearch}
-					disabled={searching}
-				>
+				<button class="btn gap-2 btn-sm btn-primary" onclick={onSearch} disabled={searching}>
 					{#if searching}
 						<Loader2 size={16} class="animate-spin" />
 						Searching...
@@ -35,11 +31,7 @@
 					{/if}
 				</button>
 
-				<button
-					class="btn btn-circle btn-ghost btn-sm"
-					onclick={onClear}
-					title="Clear selection"
-				>
+				<button class="btn btn-circle btn-ghost btn-sm" onclick={onClear} title="Clear selection">
 					<X size={16} />
 				</button>
 			</div>

@@ -11,7 +11,7 @@ For completed features and changes, see the [Changelog](../CHANGELOG.md).
 ## Status Legend
 
 | Status              | Meaning                                        |
-|---------------------|------------------------------------------------|
+| ------------------- | ---------------------------------------------- |
 | In Progress         | Actively being worked on                       |
 | Planned             | Confirmed for future development               |
 | Not Yet Started     | On the horizon but not actively in development |
@@ -21,7 +21,7 @@ For completed features and changes, see the [Changelog](../CHANGELOG.md).
 ## Priority Legend
 
 | Priority | Meaning                                     |
-|----------|---------------------------------------------|
+| -------- | ------------------------------------------- |
 | High     | Core functionality, significant user impact |
 | Medium   | Important enhancement, moderate impact      |
 | Low      | Nice to have, minor improvement             |

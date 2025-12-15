@@ -82,6 +82,7 @@ npm run build       # Build for production
 See [Architecture Overview](architecture.md) for a detailed breakdown of the codebase structure.
 
 Key directories:
+
 - `src/routes/api/` - REST API endpoints
 - `src/lib/server/` - Backend business logic
 - `src/lib/components/` - Svelte components
@@ -97,17 +98,17 @@ Cinephage uses Svelte 5 with runes. Key patterns:
 
 ```svelte
 <script lang="ts">
-    // Use $props() for component props
-    let { data } = $props();
+	// Use $props() for component props
+	let { data } = $props();
 
-    // For mutable state that syncs from props, use $effect
-    let localValue = $state('');
-    $effect(() => {
-        localValue = data.value ?? '';
-    });
+	// For mutable state that syncs from props, use $effect
+	let localValue = $state('');
+	$effect(() => {
+		localValue = data.value ?? '';
+	});
 
-    // For read-only computed values, use $derived
-    const computed = $derived(data.value * 2);
+	// For read-only computed values, use $derived
+	const computed = $derived(data.value * 2);
 </script>
 ```
 
@@ -115,17 +116,17 @@ Cinephage uses Svelte 5 with runes. Key patterns:
 
 ```svelte
 <script lang="ts">
-    // Initialize with defaults (not prop values)
-    let name = $state('');
-    let enabled = $state(true);
+	// Initialize with defaults (not prop values)
+	let name = $state('');
+	let enabled = $state(true);
 
-    // Sync from props when modal opens
-    $effect(() => {
-        if (open) {
-            name = prop?.name ?? '';
-            enabled = prop?.enabled ?? true;
-        }
-    });
+	// Sync from props when modal opens
+	$effect(() => {
+		if (open) {
+			name = prop?.name ?? '';
+			enabled = prop?.enabled ?? true;
+		}
+	});
 </script>
 ```
 
@@ -236,12 +237,12 @@ Subtitle providers are implemented in `src/lib/server/subtitles/providers/`.
 
 Before contributing, familiarize yourself with these core services:
 
-| Service | Location | Purpose |
-|---------|----------|---------|
-| `SearchService` | `src/lib/server/indexers/` | Multi-indexer search |
-| `ImportService` | `src/lib/server/library/` | File import handling |
-| `ScoringService` | `src/lib/server/scoring/` | Release scoring |
-| `MonitoringScheduler` | `src/lib/server/monitoring/` | Automated tasks |
+| Service                 | Location                          | Purpose                     |
+| ----------------------- | --------------------------------- | --------------------------- |
+| `SearchService`         | `src/lib/server/indexers/`        | Multi-indexer search        |
+| `ImportService`         | `src/lib/server/library/`         | File import handling        |
+| `ScoringService`        | `src/lib/server/scoring/`         | Release scoring             |
+| `MonitoringScheduler`   | `src/lib/server/monitoring/`      | Automated tasks             |
 | `DownloadClientManager` | `src/lib/server/downloadClients/` | Download client integration |
 
 See [Architecture](architecture.md) for the full system overview.

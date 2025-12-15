@@ -42,18 +42,21 @@ isMonitored = series.monitored AND season.monitored AND episode.monitored
 ```
 
 **Example 1:**
+
 - Series "Breaking Bad" is monitored
 - Season 1 is monitored
 - Episode S01E01 is monitored
 - **Result:** S01E01 will be searched
 
 **Example 2:**
+
 - Series "Breaking Bad" is monitored
 - Season 1 is NOT monitored
 - Episode S01E01 is monitored
 - **Result:** S01E01 will NOT be searched (season blocks it)
 
 **Example 3:**
+
 - Series "Breaking Bad" is NOT monitored
 - Season 1 is monitored
 - Episode S01E01 is monitored
@@ -74,12 +77,12 @@ Movies use a simpler single-level system:
 
 The system runs automated tasks on configurable schedules:
 
-| Task | Default Interval | Purpose |
-|------|------------------|---------|
-| Missing Content | 24 hours | Find content without files |
-| Upgrade Monitor | Weekly | Find better quality releases |
-| New Episode Check | 1 hour | Search newly aired episodes |
-| Cutoff Unmet | 24 hours | Find content below cutoff |
+| Task              | Default Interval | Purpose                      |
+| ----------------- | ---------------- | ---------------------------- |
+| Missing Content   | 24 hours         | Find content without files   |
+| Upgrade Monitor   | Weekly           | Find better quality releases |
+| New Episode Check | 1 hour           | Search newly aired episodes  |
+| Cutoff Unmet      | 24 hours         | Find content below cutoff    |
 
 ### Missing Content Search
 
@@ -284,15 +287,15 @@ POST /api/monitoring/search/cutoff-unmet
 
 Monitoring settings stored in `monitoring_settings` table:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | true | Master on/off switch |
-| `missing_search_interval_hours` | 24 | Missing content search interval |
-| `upgrade_search_interval_hours` | 168 | Upgrade search interval |
-| `new_episode_check_interval_hours` | 1 | New episode check interval |
-| `cutoff_unmet_search_interval_hours` | 24 | Cutoff unmet search interval |
-| `auto_replace_enabled` | true | Auto-replace with better quality |
-| `search_on_monitor_enabled` | true | Search when item first monitored |
+| Setting                              | Default | Description                      |
+| ------------------------------------ | ------- | -------------------------------- |
+| `enabled`                            | true    | Master on/off switch             |
+| `missing_search_interval_hours`      | 24      | Missing content search interval  |
+| `upgrade_search_interval_hours`      | 168     | Upgrade search interval          |
+| `new_episode_check_interval_hours`   | 1       | New episode check interval       |
+| `cutoff_unmet_search_interval_hours` | 24      | Cutoff unmet search interval     |
+| `auto_replace_enabled`               | true    | Auto-replace with better quality |
+| `search_on_monitor_enabled`          | true    | Search when item first monitored |
 
 ---
 
@@ -320,6 +323,7 @@ All monitoring activity is tracked in `monitoring_history` table:
 ```
 
 This provides full audit trail of:
+
 - When monitoring tasks ran
 - What was searched
 - What was found/grabbed
