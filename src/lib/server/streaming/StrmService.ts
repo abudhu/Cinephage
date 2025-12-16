@@ -15,6 +15,26 @@ import { eq, and, asc } from 'drizzle-orm';
 
 const logger = createChildLogger({ module: 'StrmService' });
 
+/** Concurrency limit for parallel .strm file creation */
+const STRM_CONCURRENCY_LIMIT = 10;
+
+/**
+ * Process items in batches with controlled concurrency
+ */
+async function processInBatches<T, R>(
+	items: T[],
+	processor: (item: T) => Promise<R>,
+	concurrency: number = STRM_CONCURRENCY_LIMIT
+): Promise<R[]> {
+	const results: R[] = [];
+	for (let i = 0; i < items.length; i += concurrency) {
+		const batch = items.slice(i, i + concurrency);
+		const batchResults = await Promise.all(batch.map(processor));
+		results.push(...batchResults);
+	}
+	return results;
+}
+
 /**
  * Validate that a path is safe (no path traversal).
  * Returns true if the resolved path is within the expected root.
@@ -69,6 +89,30 @@ export interface StrmCreateResult {
 	success: boolean;
 	filePath?: string;
 	error?: string;
+}
+
+/** Pre-fetched series data to avoid redundant DB queries */
+export interface SeriesData {
+	title: string;
+	year: number | null;
+	path: string | null;
+}
+
+/** Pre-fetched episode data for batch processing */
+export interface EpisodeData {
+	id: string;
+	episodeNumber: number;
+	title: string | null;
+}
+
+/** Options for creating .strm file without DB queries */
+export interface StrmDirectOptions {
+	tmdbId: string;
+	baseUrl: string;
+	rootFolderPath: string;
+	seriesData: SeriesData;
+	seasonNumber: number;
+	episode: EpisodeData;
 }
 
 /**
@@ -223,6 +267,49 @@ export class StrmService {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
 			logger.error('[StrmService] Failed to create .strm file', { error: message });
+			return { success: false, error: message };
+		}
+	}
+
+	/**
+	 * Create a .strm file using pre-fetched data (no DB queries)
+	 * This is the optimized version for batch operations
+	 */
+	createStrmFileDirect(options: StrmDirectOptions): StrmCreateResult {
+		const { tmdbId, baseUrl, rootFolderPath, seriesData, seasonNumber, episode } = options;
+
+		try {
+			const safeName = this.sanitizeFilename(seriesData.title);
+			const year = seriesData.year ?? 'Unknown';
+			const rawShowPath = seriesData.path || `${safeName} (${year})`;
+
+			const showPath = sanitizePath(rawShowPath);
+			if (!isPathSafe(rootFolderPath, showPath)) {
+				return { success: false, error: 'Invalid series path: path traversal detected' };
+			}
+
+			const showFolder = join(rootFolderPath, showPath);
+			const seasonFolder = join(showFolder, `Season ${seasonNumber.toString().padStart(2, '0')}`);
+
+			const seasonStr = seasonNumber.toString().padStart(2, '0');
+			const episodeStr = episode.episodeNumber.toString().padStart(2, '0');
+			const episodeTitle = episode.title ? ` - ${this.sanitizeFilename(episode.title)}` : '';
+			const filename = `${safeName} - S${seasonStr}E${episodeStr}${episodeTitle}.strm`;
+			const destinationPath = join(seasonFolder, filename);
+
+			// Ensure directory exists
+			const dir = dirname(destinationPath);
+			if (!existsSync(dir)) {
+				mkdirSync(dir, { recursive: true });
+			}
+
+			// Generate and write .strm content
+			const content = `${baseUrl}/api/streaming/resolve/tv/${tmdbId}/${seasonNumber}/${episode.episodeNumber}`;
+			writeFileSync(destinationPath, content, 'utf8');
+
+			return { success: true, filePath: destinationPath };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
 			return { success: false, error: message };
 		}
 	}
@@ -497,6 +584,9 @@ export class StrmService {
 	 *
 	 * Note: Only creates files for episodes that have already aired
 	 * @param options.episodeIds - Optional: Only create files for these specific episode IDs (used to avoid race condition with watcher)
+	 * @param options.seriesData - Optional: Pre-fetched series data to avoid redundant DB queries
+	 * @param options.rootFolderPath - Optional: Pre-fetched root folder path
+	 * @param options.episodeData - Optional: Pre-fetched episode data for this season
 	 */
 	async createSeasonStrmFiles(options: {
 		seriesId: string;
@@ -504,6 +594,9 @@ export class StrmService {
 		tmdbId: string;
 		baseUrl: string;
 		episodeIds?: string[];
+		seriesData?: SeriesData;
+		rootFolderPath?: string;
+		episodeData?: EpisodeData[];
 	}): Promise<{
 		success: boolean;
 		results: Array<{ episodeId: string; episodeNumber: number; filePath?: string; error?: string }>;
@@ -512,91 +605,95 @@ export class StrmService {
 		const { seriesId, seasonNumber, tmdbId, baseUrl, episodeIds } = options;
 
 		try {
-			// Get all episodes for this season
-			const allEpisodes = await db.query.episodes.findMany({
-				where: and(eq(episodes.seriesId, seriesId), eq(episodes.seasonNumber, seasonNumber))
-			});
+			// Use pre-fetched data or fetch from DB
+			let seriesData = options.seriesData;
+			let rootFolderPath = options.rootFolderPath;
 
-			// Filter to only include episodes that have already aired
-			const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-			let seasonEpisodes = allEpisodes.filter((ep) => {
-				// If no air date, skip the episode (hasn't aired)
-				if (!ep.airDate) {
-					return false;
+			if (!seriesData || !rootFolderPath) {
+				const show = await db.query.series.findFirst({
+					where: eq(series.id, seriesId),
+					with: { rootFolder: true }
+				});
+
+				if (!show) {
+					return { success: false, results: [], error: `Series not found: ${seriesId}` };
 				}
-				// Only include episodes that aired on or before today
-				return ep.airDate <= today;
-			});
+				if (!show.rootFolder) {
+					return { success: false, results: [], error: 'Series has no root folder configured' };
+				}
 
-			// If specific episode IDs provided, filter to only those episodes
-			if (episodeIds && episodeIds.length > 0) {
-				const episodeIdSet = new Set(episodeIds);
-				seasonEpisodes = seasonEpisodes.filter((ep) => episodeIdSet.has(ep.id));
+				seriesData = { title: show.title, year: show.year, path: show.path };
+				rootFolderPath = show.rootFolder.path;
+			}
+
+			// Use pre-fetched episode data or fetch from DB
+			let seasonEpisodes: EpisodeData[];
+
+			if (options.episodeData) {
+				seasonEpisodes = options.episodeData;
+			} else {
+				const allEpisodes = await db.query.episodes.findMany({
+					where: and(eq(episodes.seriesId, seriesId), eq(episodes.seasonNumber, seasonNumber))
+				});
+
+				// Filter to only include episodes that have already aired
+				const today = new Date().toISOString().split('T')[0];
+				let airedEpisodes = allEpisodes.filter((ep) => !ep.airDate || ep.airDate <= today);
+
+				// If specific episode IDs provided, filter to only those episodes
+				if (episodeIds && episodeIds.length > 0) {
+					const episodeIdSet = new Set(episodeIds);
+					airedEpisodes = airedEpisodes.filter((ep) => episodeIdSet.has(ep.id));
+				}
+
+				seasonEpisodes = airedEpisodes.map((ep) => ({
+					id: ep.id,
+					episodeNumber: ep.episodeNumber,
+					title: ep.title
+				}));
 			}
 
 			if (seasonEpisodes.length === 0) {
-				const unairedCount = allEpisodes.length;
 				return {
 					success: false,
 					results: [],
-					error:
-						unairedCount > 0
-							? `No aired episodes found for season ${seasonNumber} (${unairedCount} episodes haven't aired yet)`
-							: `No episodes found for season ${seasonNumber}`
+					error: `No episodes to process for season ${seasonNumber}`
 				};
 			}
 
 			logger.info('[StrmService] Creating season pack .strm files', {
 				seriesId,
 				seasonNumber,
-				airedEpisodes: seasonEpisodes.length,
-				totalEpisodes: allEpisodes.length,
-				skippedUnaired: allEpisodes.length - seasonEpisodes.length
+				episodeCount: seasonEpisodes.length,
+				episodeNumbers: seasonEpisodes.map((e) => e.episodeNumber)
 			});
 
-			const results: Array<{
-				episodeId: string;
-				episodeNumber: number;
-				filePath?: string;
-				error?: string;
-			}> = [];
-			let successCount = 0;
-
-			// Create .strm file for each episode
-			for (const ep of seasonEpisodes) {
-				const result = await this.createStrmFile({
-					mediaType: 'tv',
+			// Process episodes in parallel batches using the direct method (no DB queries)
+			const results = await processInBatches(seasonEpisodes, async (ep) => {
+				const result = this.createStrmFileDirect({
 					tmdbId,
-					seriesId,
-					season: seasonNumber,
-					episode: ep.episodeNumber,
-					baseUrl
+					baseUrl,
+					rootFolderPath: rootFolderPath!,
+					seriesData: seriesData!,
+					seasonNumber,
+					episode: ep
 				});
 
-				if (result.success && result.filePath) {
-					results.push({
-						episodeId: ep.id,
-						episodeNumber: ep.episodeNumber,
-						filePath: result.filePath
-					});
-					successCount++;
-				} else {
-					results.push({
-						episodeId: ep.id,
-						episodeNumber: ep.episodeNumber,
-						error: result.error
-					});
-				}
-			}
+				return {
+					episodeId: ep.id,
+					episodeNumber: ep.episodeNumber,
+					filePath: result.success ? result.filePath : undefined,
+					error: result.error
+				};
+			});
+
+			const successCount = results.filter((r) => r.filePath).length;
 
 			logger.info('[StrmService] Season pack .strm files created', {
 				seriesId,
 				seasonNumber,
-				airedEpisodes: seasonEpisodes.length,
-				totalInSeason: allEpisodes.length,
 				success: successCount,
-				failed: seasonEpisodes.length - successCount,
-				skippedUnaired: allEpisodes.length - seasonEpisodes.length
+				failed: seasonEpisodes.length - successCount
 			});
 
 			return {
@@ -618,6 +715,7 @@ export class StrmService {
 	 * Create .strm files for all episodes in all seasons of a series
 	 * Used for streaming "complete series" grabs
 	 *
+	 * Optimized to pre-fetch all data upfront and process seasons in parallel
 	 * Note: Excludes Season 0 (Specials) by default
 	 */
 	async createSeriesStrmFiles(options: {
@@ -640,66 +738,94 @@ export class StrmService {
 		const { seriesId, tmdbId, baseUrl } = options;
 
 		try {
-			// Get all seasons for this series from database (ordered by season number)
-			const allSeasons = await db.query.seasons.findMany({
-				where: eq(seasons.seriesId, seriesId),
-				orderBy: [asc(seasons.seasonNumber)]
+			// Pre-fetch series and root folder in one query
+			const show = await db.query.series.findFirst({
+				where: eq(series.id, seriesId),
+				with: { rootFolder: true }
 			});
 
-			if (allSeasons.length === 0) {
-				return {
-					success: false,
-					results: [],
-					error: 'No seasons found for series'
-				};
+			if (!show) {
+				return { success: false, results: [], error: `Series not found: ${seriesId}` };
+			}
+			if (!show.rootFolder) {
+				return { success: false, results: [], error: 'Series has no root folder configured' };
+			}
+
+			const seriesData: SeriesData = { title: show.title, year: show.year, path: show.path };
+			const rootFolderPath = show.rootFolder.path;
+
+			// Pre-fetch ALL episodes for the series in one query
+			const allEpisodes = await db.query.episodes.findMany({
+				where: eq(episodes.seriesId, seriesId),
+				orderBy: [asc(episodes.seasonNumber), asc(episodes.episodeNumber)]
+			});
+
+			// Filter to only aired episodes and group by season
+			const today = new Date().toISOString().split('T')[0];
+			const episodesBySeason = new Map<number, EpisodeData[]>();
+
+			for (const ep of allEpisodes) {
+				// Skip Season 0 (Specials) and unaired episodes
+				if (ep.seasonNumber === 0) continue;
+				if (ep.airDate && ep.airDate > today) continue;
+
+				const seasonEps = episodesBySeason.get(ep.seasonNumber) || [];
+				seasonEps.push({ id: ep.id, episodeNumber: ep.episodeNumber, title: ep.title });
+				episodesBySeason.set(ep.seasonNumber, seasonEps);
+			}
+
+			if (episodesBySeason.size === 0) {
+				return { success: false, results: [], error: 'No aired episodes found for series' };
+			}
+
+			// Log episode breakdown per season to debug E01 skipping issue
+			const episodeBreakdown: Record<number, number[]> = {};
+			for (const [season, eps] of episodesBySeason.entries()) {
+				episodeBreakdown[season] = eps.map((e) => e.episodeNumber);
 			}
 
 			logger.info('[StrmService] Creating complete series .strm files', {
 				seriesId,
-				seasonCount: allSeasons.length
+				seasonCount: episodesBySeason.size,
+				totalEpisodes: Array.from(episodesBySeason.values()).reduce(
+					(sum, eps) => sum + eps.length,
+					0
+				),
+				episodeBreakdown
 			});
 
-			const results: Array<{
-				seasonNumber: number;
-				episodeResults: Array<{
-					episodeId: string;
-					episodeNumber: number;
-					filePath?: string;
-					error?: string;
-				}>;
-			}> = [];
+			// Process all seasons in parallel, each season processes its episodes in batches
+			const seasonNumbers = Array.from(episodesBySeason.keys()).sort((a, b) => a - b);
+			const seasonResults = await Promise.all(
+				seasonNumbers.map(async (seasonNumber) => {
+					const seasonResult = await this.createSeasonStrmFiles({
+						seriesId,
+						seasonNumber,
+						tmdbId,
+						baseUrl,
+						seriesData,
+						rootFolderPath,
+						episodeData: episodesBySeason.get(seasonNumber)!
+					});
+
+					return {
+						seasonNumber,
+						episodeResults: seasonResult.results
+					};
+				})
+			);
+
 			let totalSuccess = 0;
 			let totalEpisodes = 0;
-
-			// Create .strm files for each season (excluding Season 0 - Specials)
-			for (const season of allSeasons) {
-				// Skip Season 0 (Specials)
-				if (season.seasonNumber === 0) {
-					logger.debug('[StrmService] Skipping Season 0 (Specials)', { seriesId });
-					continue;
-				}
-
-				const seasonResult = await this.createSeasonStrmFiles({
-					seriesId,
-					seasonNumber: season.seasonNumber,
-					tmdbId,
-					baseUrl
-				});
-
-				results.push({
-					seasonNumber: season.seasonNumber,
-					episodeResults: seasonResult.results
-				});
-
-				// Count successes
-				const successCount = seasonResult.results.filter((r) => r.filePath).length;
+			for (const result of seasonResults) {
+				const successCount = result.episodeResults.filter((r) => r.filePath).length;
 				totalSuccess += successCount;
-				totalEpisodes += seasonResult.results.length;
+				totalEpisodes += result.episodeResults.length;
 			}
 
 			logger.info('[StrmService] Complete series .strm files created', {
 				seriesId,
-				seasonsProcessed: results.length,
+				seasonsProcessed: seasonResults.length,
 				totalEpisodes,
 				totalSuccess,
 				totalFailed: totalEpisodes - totalSuccess
@@ -707,7 +833,7 @@ export class StrmService {
 
 			return {
 				success: totalSuccess > 0,
-				results
+				results: seasonResults
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';

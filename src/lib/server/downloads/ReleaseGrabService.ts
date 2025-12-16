@@ -898,16 +898,16 @@ class ReleaseGrabService {
 		}
 
 		if (episodeFileData.length === 0) {
-			// Clean up created .strm files since we can't proceed
-			for (const epResult of strmResult.results) {
-				if (epResult.filePath) {
-					try {
-						await unlink(epResult.filePath);
-					} catch {
-						// Ignore cleanup errors
-					}
+			// Don't clean up .strm files - let the LibraryWatcher try to link them
+			// Even if we failed to get file info, the watcher might succeed
+			logger.warn(
+				'[ReleaseGrab] Failed to get file info for any episodes, keeping files for watcher',
+				{
+					seriesId,
+					seasonNumber,
+					filesCreated: strmResult.results.filter((r) => r.filePath).length
 				}
-			}
+			);
 			return { success: false, error: 'Failed to get file info for any episodes' };
 		}
 
@@ -1025,37 +1025,19 @@ class ReleaseGrabService {
 				}
 			});
 		} catch (txError) {
-			// Transaction failed - clean up created .strm files only if they weren't linked by watcher
-			logger.error('[ReleaseGrab] Transaction failed for streaming season pack, cleaning up', {
+			// Transaction failed - do NOT delete files, let LibraryWatcher handle them
+			// Deleting files here causes a race condition where E01 gets deleted before
+			// the watcher has a chance to process and link it
+			logger.error('[ReleaseGrab] Transaction failed for streaming season pack', {
 				seriesId,
 				seasonNumber,
-				error: txError instanceof Error ? txError.message : 'Unknown error'
+				error: txError instanceof Error ? txError.message : 'Unknown error',
+				filesCreated: episodeFileData.length,
+				note: 'Keeping .strm files for LibraryWatcher to process'
 			});
 
-			for (const epData of episodeFileData) {
-				try {
-					// Check if file was linked by another process (e.g., LibraryWatcher)
-					const existingFile = await db.query.episodeFiles.findFirst({
-						where: eq(episodeFiles.relativePath, epData.relativePath)
-					});
-
-					if (!existingFile) {
-						// File not linked by anyone - safe to delete
-						await unlink(epData.filePath);
-						logger.debug('[ReleaseGrab] Cleaned up .strm file after transaction failure', {
-							path: epData.filePath
-						});
-					} else {
-						// File was linked by watcher - leave it alone
-						logger.debug('[ReleaseGrab] Keeping .strm file - already linked by watcher', {
-							path: epData.filePath,
-							existingFileId: existingFile.id
-						});
-					}
-				} catch {
-					// Ignore cleanup errors
-				}
-			}
+			// Don't delete files - the LibraryWatcher will detect them and link properly
+			// This avoids the race condition where files get deleted before watcher processes them
 
 			return {
 				success: false,

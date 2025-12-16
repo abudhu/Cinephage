@@ -19,7 +19,7 @@ import {
 	episodeFiles,
 	downloadHistory
 } from '$lib/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { relative } from 'node:path';
@@ -708,11 +708,26 @@ async function handleStreamingSeasonPack(
 		hdr: undefined
 	};
 
-	const createdEpisodeIds: string[] = [];
-	const createdFileIds: string[] = [];
+	// Collect all records to batch insert
+	const fileRecords: Array<{
+		id: string;
+		seriesId: string;
+		seasonNumber: number;
+		episodeIds: string[];
+		relativePath: string;
+		size: number;
+		dateAdded: string;
+		sceneName: string;
+		releaseGroup: string;
+		quality: typeof quality;
+		mediaInfo: Awaited<ReturnType<typeof mediaInfoService.extractMediaInfo>>;
+	}> = [];
+	const episodeIdsToUpdate: string[] = [];
 	let totalSize = 0;
+	const dateAdded = new Date().toISOString();
+	const releaseGroup = parsedRelease.releaseGroup ?? 'Streaming';
 
-	// Create database records for each successfully created .strm file
+	// Collect all file records (no DB operations in this loop)
 	for (const epResult of strmResult.results) {
 		if (!epResult.filePath) {
 			logger.warn('[Grab] Skipping episode without .strm file', {
@@ -724,43 +739,29 @@ async function handleStreamingSeasonPack(
 		}
 
 		try {
-			// Get file stats
 			const stats = statSync(epResult.filePath);
 			const mediaInfo = await mediaInfoService.extractMediaInfo(epResult.filePath);
-
-			// Calculate relative path from root folder
 			const relativePath = relative(show.rootFolder.path, epResult.filePath);
-
-			// Create episode file record
 			const fileId = randomUUID();
-			await db.insert(episodeFiles).values({
+
+			fileRecords.push({
 				id: fileId,
 				seriesId,
 				seasonNumber,
 				episodeIds: [epResult.episodeId],
 				relativePath,
 				size: stats.size,
-				dateAdded: new Date().toISOString(),
+				dateAdded,
 				sceneName: title,
-				releaseGroup: parsedRelease.releaseGroup ?? 'Streaming',
+				releaseGroup,
 				quality,
 				mediaInfo
 			});
 
-			// Update episode hasFile flag
-			await db.update(episodes).set({ hasFile: true }).where(eq(episodes.id, epResult.episodeId));
-
-			createdEpisodeIds.push(epResult.episodeId);
-			createdFileIds.push(fileId);
+			episodeIdsToUpdate.push(epResult.episodeId);
 			totalSize += stats.size;
-
-			logger.debug('[Grab] Created episode file record', {
-				episodeId: epResult.episodeId,
-				episodeNumber: epResult.episodeNumber,
-				fileId
-			});
 		} catch (error) {
-			logger.error('[Grab] Failed to create DB record for episode', {
+			logger.error('[Grab] Failed to prepare DB record for episode', {
 				episodeId: epResult.episodeId,
 				episodeNumber: epResult.episodeNumber,
 				error: error instanceof Error ? error.message : 'Unknown error'
@@ -768,12 +769,25 @@ async function handleStreamingSeasonPack(
 		}
 	}
 
-	if (createdFileIds.length === 0) {
+	if (fileRecords.length === 0) {
 		return json(
 			{ success: false, error: 'Failed to create any episode file records' } satisfies GrabResponse,
 			{ status: 500 }
 		);
 	}
+
+	// Batch insert all episode files
+	await db.insert(episodeFiles).values(fileRecords);
+
+	// Batch update all episode hasFile flags
+	await db.update(episodes).set({ hasFile: true }).where(inArray(episodes.id, episodeIdsToUpdate));
+
+	const createdEpisodeIds = episodeIdsToUpdate;
+	const createdFileIds = fileRecords.map((r) => r.id);
+
+	logger.debug('[Grab] Batch inserted episode file records', {
+		count: fileRecords.length
+	});
 
 	// Create single history record for the entire season pack
 	await db.insert(downloadHistory).values({
@@ -885,11 +899,26 @@ async function handleStreamingCompleteSeries(
 		hdr: undefined
 	};
 
-	const createdEpisodeIds: string[] = [];
-	const createdFileIds: string[] = [];
+	// Collect all records to batch insert
+	const fileRecords: Array<{
+		id: string;
+		seriesId: string;
+		seasonNumber: number;
+		episodeIds: string[];
+		relativePath: string;
+		size: number;
+		dateAdded: string;
+		sceneName: string;
+		releaseGroup: string;
+		quality: typeof quality;
+		mediaInfo: Awaited<ReturnType<typeof mediaInfoService.extractMediaInfo>>;
+	}> = [];
+	const episodeIdsToUpdate: string[] = [];
 	let totalSize = 0;
+	const dateAdded = new Date().toISOString();
+	const releaseGroup = parsedRelease.releaseGroup ?? 'Streaming';
 
-	// Create database records for each successfully created .strm file
+	// Collect all file records across all seasons (no DB operations in this loop)
 	for (const seasonResult of strmResult.results) {
 		for (const epResult of seasonResult.episodeResults) {
 			if (!epResult.filePath) {
@@ -903,44 +932,29 @@ async function handleStreamingCompleteSeries(
 			}
 
 			try {
-				// Get file stats
 				const stats = statSync(epResult.filePath);
 				const mediaInfo = await mediaInfoService.extractMediaInfo(epResult.filePath);
-
-				// Calculate relative path from root folder
 				const relativePath = relative(show.rootFolder.path, epResult.filePath);
-
-				// Create episode file record
 				const fileId = randomUUID();
-				await db.insert(episodeFiles).values({
+
+				fileRecords.push({
 					id: fileId,
 					seriesId,
 					seasonNumber: seasonResult.seasonNumber,
 					episodeIds: [epResult.episodeId],
 					relativePath,
 					size: stats.size,
-					dateAdded: new Date().toISOString(),
+					dateAdded,
 					sceneName: title,
-					releaseGroup: parsedRelease.releaseGroup ?? 'Streaming',
+					releaseGroup,
 					quality,
 					mediaInfo
 				});
 
-				// Update episode hasFile flag
-				await db.update(episodes).set({ hasFile: true }).where(eq(episodes.id, epResult.episodeId));
-
-				createdEpisodeIds.push(epResult.episodeId);
-				createdFileIds.push(fileId);
+				episodeIdsToUpdate.push(epResult.episodeId);
 				totalSize += stats.size;
-
-				logger.debug('[Grab] Created episode file record', {
-					seasonNumber: seasonResult.seasonNumber,
-					episodeId: epResult.episodeId,
-					episodeNumber: epResult.episodeNumber,
-					fileId
-				});
 			} catch (error) {
-				logger.error('[Grab] Failed to create DB record for episode', {
+				logger.error('[Grab] Failed to prepare DB record for episode', {
 					seasonNumber: seasonResult.seasonNumber,
 					episodeId: epResult.episodeId,
 					episodeNumber: epResult.episodeNumber,
@@ -950,12 +964,26 @@ async function handleStreamingCompleteSeries(
 		}
 	}
 
-	if (createdFileIds.length === 0) {
+	if (fileRecords.length === 0) {
 		return json(
 			{ success: false, error: 'Failed to create any episode file records' } satisfies GrabResponse,
 			{ status: 500 }
 		);
 	}
+
+	// Batch insert all episode files
+	await db.insert(episodeFiles).values(fileRecords);
+
+	// Batch update all episode hasFile flags
+	await db.update(episodes).set({ hasFile: true }).where(inArray(episodes.id, episodeIdsToUpdate));
+
+	const createdEpisodeIds = episodeIdsToUpdate;
+	const createdFileIds = fileRecords.map((r) => r.id);
+
+	logger.debug('[Grab] Batch inserted episode file records', {
+		count: fileRecords.length,
+		seasons: strmResult.results.length
+	});
 
 	// Create single history record for the entire complete series
 	await db.insert(downloadHistory).values({
