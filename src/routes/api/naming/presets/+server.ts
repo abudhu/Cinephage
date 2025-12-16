@@ -1,0 +1,102 @@
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { db } from '$lib/server/db';
+import { namingPresets } from '$lib/server/db/schema';
+import { BUILT_IN_PRESETS, type NamingPreset } from '$lib/server/library/naming/presets';
+import { eq } from 'drizzle-orm';
+
+/**
+ * GET /api/naming/presets
+ * List all presets (built-in + custom)
+ */
+export const GET: RequestHandler = async () => {
+	try {
+		// Get custom presets from database
+		const customPresets = await db.select().from(namingPresets);
+
+		// Combine built-in and custom presets
+		const allPresets: NamingPreset[] = [
+			...BUILT_IN_PRESETS,
+			...customPresets.map((p) => ({
+				id: p.id,
+				name: p.name,
+				description: p.description || '',
+				isBuiltIn: false,
+				config: p.config as NamingPreset['config']
+			}))
+		];
+
+		return json({
+			presets: allPresets,
+			builtInIds: BUILT_IN_PRESETS.map((p) => p.id)
+		});
+	} catch (err) {
+		console.error('Error fetching naming presets:', err);
+		return json({ error: 'Failed to fetch presets' }, { status: 500 });
+	}
+};
+
+/**
+ * POST /api/naming/presets
+ * Create a new custom preset
+ */
+export const POST: RequestHandler = async ({ request }) => {
+	try {
+		const body = await request.json();
+		const { name, description, config } = body as {
+			name: string;
+			description?: string;
+			config: Record<string, unknown>;
+		};
+
+		if (!name || typeof name !== 'string' || name.trim().length === 0) {
+			return json({ error: 'Name is required' }, { status: 400 });
+		}
+
+		if (!config || typeof config !== 'object') {
+			return json({ error: 'Config is required' }, { status: 400 });
+		}
+
+		// Check if name conflicts with built-in preset
+		const builtInConflict = BUILT_IN_PRESETS.find(
+			(p) => p.name.toLowerCase() === name.trim().toLowerCase()
+		);
+		if (builtInConflict) {
+			return json({ error: 'Cannot use a built-in preset name' }, { status: 400 });
+		}
+
+		// Check if name already exists in custom presets
+		const existingCustom = await db
+			.select()
+			.from(namingPresets)
+			.where(eq(namingPresets.name, name.trim()));
+
+		if (existingCustom.length > 0) {
+			return json({ error: 'A preset with this name already exists' }, { status: 400 });
+		}
+
+		// Create the preset
+		const [newPreset] = await db
+			.insert(namingPresets)
+			.values({
+				name: name.trim(),
+				description: description?.trim() || null,
+				config,
+				isBuiltIn: false
+			})
+			.returning();
+
+		return json({
+			preset: {
+				id: newPreset.id,
+				name: newPreset.name,
+				description: newPreset.description || '',
+				isBuiltIn: false,
+				config: newPreset.config as NamingPreset['config']
+			}
+		});
+	} catch (err) {
+		console.error('Error creating naming preset:', err);
+		return json({ error: 'Failed to create preset' }, { status: 500 });
+	}
+};

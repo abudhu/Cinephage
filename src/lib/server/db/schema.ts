@@ -781,6 +781,21 @@ export const namingSettings = sqliteTable('naming_settings', {
 	value: text('value').notNull()
 });
 
+/**
+ * Naming Presets - User-saved naming format presets
+ * Built-in presets are defined in code, custom presets are stored here
+ */
+export const namingPresets = sqliteTable('naming_presets', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => randomUUID()),
+	name: text('name').notNull(),
+	description: text('description'),
+	config: text('config', { mode: 'json' }).notNull().$type<Record<string, unknown>>(),
+	isBuiltIn: integer('is_built_in', { mode: 'boolean' }).default(false),
+	createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date())
+});
+
 // Default library settings keys:
 // - 'scan_interval_hours': How often to run periodic scans (default: 12)
 // - 'watch_enabled': Whether filesystem watching is enabled (default: true)

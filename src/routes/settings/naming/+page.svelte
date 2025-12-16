@@ -9,9 +9,22 @@
 		ChevronUp,
 		Info,
 		RefreshCw,
-		CheckCircle
+		CheckCircle,
+		FileEdit,
+		Download,
+		Plus,
+		Trash2,
+		Settings2
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
+
+	interface NamingPreset {
+		id: string;
+		name: string;
+		description: string;
+		isBuiltIn: boolean;
+		config: Record<string, unknown>;
+	}
 
 	let { data }: { data: PageData } = $props();
 
@@ -28,8 +41,147 @@
 	// Collapsed sections
 	let movieSectionOpen = $state(true);
 	let seriesSectionOpen = $state(true);
-	let optionsSectionOpen = $state(true);
 	let tokensSectionOpen = $state(false);
+	let customPresetsSectionOpen = $state(false);
+
+	// Preset state (for custom presets only)
+	let presets = $state<NamingPreset[]>([]);
+	let selectedPresetId = $state<string>('');
+	let loadingPresets = $state(false);
+	let showSavePresetModal = $state(false);
+	let newPresetName = $state('');
+	let newPresetDescription = $state('');
+	let savingPreset = $state(false);
+
+	// Track previous media server to detect changes
+	let previousMediaServer = data.config.mediaServerIdFormat;
+
+	// Load custom presets on mount
+	$effect(() => {
+		loadPresets();
+	});
+
+	// Auto-apply preset when media server format changes
+	$effect(() => {
+		const currentServer = config.mediaServerIdFormat;
+		if (currentServer !== previousMediaServer) {
+			applyBuiltInPreset(currentServer);
+			previousMediaServer = currentServer;
+		}
+	});
+
+	async function applyBuiltInPreset(serverId: string) {
+		try {
+			const response = await fetch(`/api/naming/presets/${serverId}`);
+			if (response.ok) {
+				const result = await response.json();
+				if (result.preset?.config) {
+					// Apply preset config but preserve the current mediaServerIdFormat
+					const presetConfig = result.preset.config;
+					config = {
+						...config,
+						...presetConfig,
+						mediaServerIdFormat: serverId
+					};
+				}
+			}
+		} catch {
+			// Ignore errors - just keep current config
+		}
+	}
+
+	async function loadPresets() {
+		loadingPresets = true;
+		try {
+			const response = await fetch('/api/naming/presets');
+			if (response.ok) {
+				const result = await response.json();
+				presets = result.presets;
+			}
+		} catch {
+			// Ignore preset loading errors
+		} finally {
+			loadingPresets = false;
+		}
+	}
+
+	async function applyCustomPreset() {
+		if (!selectedPresetId) return;
+
+		try {
+			const response = await fetch(`/api/naming/presets/${selectedPresetId}`);
+			if (response.ok) {
+				const result = await response.json();
+				if (result.preset?.config) {
+					config = { ...config, ...result.preset.config };
+					// Update the previousMediaServer to prevent auto-apply from triggering
+					previousMediaServer = config.mediaServerIdFormat;
+				}
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Apply preset failed';
+		}
+	}
+
+	async function saveAsPreset() {
+		if (!newPresetName.trim()) return;
+
+		savingPreset = true;
+		error = null;
+
+		try {
+			const response = await fetch('/api/naming/presets', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: newPresetName.trim(),
+					description: newPresetDescription.trim(),
+					config
+				})
+			});
+
+			if (!response.ok) {
+				const result = await response.json();
+				throw new Error(result.error || 'Failed to save preset');
+			}
+
+			await loadPresets();
+			showSavePresetModal = false;
+			newPresetName = '';
+			newPresetDescription = '';
+			success = true;
+			setTimeout(() => (success = false), 3000);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Save preset failed';
+		} finally {
+			savingPreset = false;
+		}
+	}
+
+	async function deletePreset(presetId: string, presetName: string) {
+		if (!confirm(`Delete preset "${presetName}"?`)) return;
+
+		try {
+			const response = await fetch(`/api/naming/presets/${presetId}`, {
+				method: 'DELETE'
+			});
+
+			if (!response.ok) {
+				const result = await response.json();
+				throw new Error(result.error || 'Failed to delete preset');
+			}
+
+			await loadPresets();
+			if (selectedPresetId === presetId) {
+				selectedPresetId = '';
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Delete preset failed';
+		}
+	}
+
+	// Get custom presets only (built-in are handled via media server dropdown)
+	const customPresets = $derived(presets.filter((p) => !p.isBuiltIn));
 
 	// Check if there are unsaved changes
 	const hasChanges = $derived(JSON.stringify(config) !== JSON.stringify(data.config));
@@ -134,6 +286,10 @@
 			</p>
 		</div>
 		<div class="flex gap-2">
+			<a href="/settings/naming/rename" class="btn btn-ghost gap-2">
+				<FileEdit class="h-4 w-4" />
+				Rename Files
+			</a>
 			<button class="btn gap-2 btn-ghost" onclick={resetToDefaults} disabled={saving}>
 				<RotateCcw class="h-4 w-4" />
 				Reset to Defaults
@@ -156,6 +312,144 @@
 	{#if error}
 		<div class="mb-4 alert alert-error">
 			<span>{error}</span>
+		</div>
+	{/if}
+
+	<!-- Options Row -->
+	<div class="card bg-base-200 mb-6">
+		<div class="card-body p-4">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+				<!-- Media Server ID Format -->
+				<div class="form-control">
+					<label class="label py-1" for="mediaServerIdFormat">
+						<span class="label-text font-medium">Media Server ID Format</span>
+					</label>
+					<select
+						id="mediaServerIdFormat"
+						class="select-bordered select select-sm"
+						bind:value={config.mediaServerIdFormat}
+					>
+						<option value="plex">Plex / Emby</option>
+						<option value="jellyfin">Jellyfin</option>
+					</select>
+				</div>
+
+				<!-- Multi-Episode Style -->
+				<div class="form-control">
+					<label class="label py-1" for="multiEpisodeStyle">
+						<span class="label-text font-medium">Multi-Episode Style</span>
+					</label>
+					<select
+						id="multiEpisodeStyle"
+						class="select-bordered select select-sm"
+						bind:value={config.multiEpisodeStyle}
+					>
+						<option value="range">Range: S01E01-E03</option>
+						<option value="extend">Extend: S01E01E02E03</option>
+						<option value="duplicate">Duplicate: S01E01-E02-E03</option>
+						<option value="scene">Scene: S01E01E02</option>
+						<option value="repeat">Repeat: S01E01</option>
+					</select>
+				</div>
+
+				<!-- Colon Replacement -->
+				<div class="form-control">
+					<label class="label py-1" for="colonReplacement">
+						<span class="label-text font-medium">Colon Replacement</span>
+					</label>
+					<select
+						id="colonReplacement"
+						class="select-bordered select select-sm"
+						bind:value={config.colonReplacement}
+					>
+						<option value="smart">Smart</option>
+						<option value="delete">Delete</option>
+						<option value="dash">Dash</option>
+						<option value="spaceDash">Space Dash</option>
+						<option value="spaceDashSpace">Space Dash Space</option>
+					</select>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Custom Presets (collapsed by default) -->
+	{#if customPresets.length > 0 || true}
+		<div class="card bg-base-200 mb-6">
+			<div
+				class="card-body cursor-pointer p-4"
+				onclick={() => (customPresetsSectionOpen = !customPresetsSectionOpen)}
+				onkeydown={(e) => e.key === 'Enter' && (customPresetsSectionOpen = !customPresetsSectionOpen)}
+				role="button"
+				tabindex="0"
+			>
+				<div class="flex items-center justify-between">
+					<h2 class="card-title gap-2 text-base">
+						<Settings2 class="h-4 w-4" />
+						Custom Presets
+					</h2>
+					{#if customPresetsSectionOpen}
+						<ChevronUp class="h-5 w-5" />
+					{:else}
+						<ChevronDown class="h-5 w-5" />
+					{/if}
+				</div>
+			</div>
+			{#if customPresetsSectionOpen}
+				<div class="card-body border-t border-base-300 pt-4 pb-4">
+					<div class="flex items-center gap-4 flex-wrap">
+						{#if customPresets.length > 0}
+							<div class="form-control flex-1 min-w-[200px]">
+								<select
+									id="customPresetSelect"
+									class="select-bordered select select-sm"
+									bind:value={selectedPresetId}
+									disabled={loadingPresets}
+								>
+									<option value="">Select a custom preset...</option>
+									{#each customPresets as preset}
+										<option value={preset.id}>{preset.name}</option>
+									{/each}
+								</select>
+							</div>
+							<button
+								class="btn btn-sm btn-primary gap-1"
+								onclick={applyCustomPreset}
+								disabled={!selectedPresetId}
+							>
+								<Download class="h-4 w-4" />
+								Load
+							</button>
+							{#if selectedPresetId}
+								<button
+									class="btn btn-sm btn-ghost btn-error gap-1"
+									onclick={() => {
+										const preset = customPresets.find((p) => p.id === selectedPresetId);
+										if (preset) deletePreset(preset.id, preset.name);
+									}}
+								>
+									<Trash2 class="h-4 w-4" />
+								</button>
+							{/if}
+						{:else}
+							<p class="text-sm text-base-content/60">No custom presets yet.</p>
+						{/if}
+						<button
+							class="btn btn-sm btn-ghost gap-1"
+							onclick={() => (showSavePresetModal = true)}
+						>
+							<Plus class="h-4 w-4" />
+							Save Current as Preset
+						</button>
+					</div>
+					{#if selectedPresetId}
+						{@const selectedPreset = customPresets.find((p) => p.id === selectedPresetId)}
+						{#if selectedPreset?.description}
+							<p class="text-sm text-base-content/70 mt-2">{selectedPreset.description}</p>
+						{/if}
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -201,11 +495,11 @@
 								class="input-bordered input font-mono text-sm"
 								bind:value={config.movieFolderFormat}
 							/>
-							<div class="label">
-								<span class="label-text-alt text-base-content/60"
-									>Folder name inside root folder</span
-								>
-							</div>
+							{#if previews?.movie?.folder}
+								<div class="mt-1 font-mono text-xs text-success/80 truncate">
+									{previews.movie.folder}
+								</div>
+							{/if}
 						</div>
 
 						<div class="form-control">
@@ -221,11 +515,11 @@
 								rows="2"
 								bind:value={config.movieFileFormat}
 							></textarea>
-							<div class="label">
-								<span class="label-text-alt text-base-content/60"
-									>Movie filename (extension added automatically)</span
-								>
-							</div>
+							{#if previews?.movie?.file}
+								<div class="mt-1 font-mono text-xs text-success/80 break-all">
+									{previews.movie.file}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -270,6 +564,11 @@
 								class="input-bordered input font-mono text-sm"
 								bind:value={config.seriesFolderFormat}
 							/>
+							{#if previews?.series?.folder}
+								<div class="mt-1 font-mono text-xs text-success/80 truncate">
+									{previews.series.folder}
+								</div>
+							{/if}
 						</div>
 
 						<div class="form-control">
@@ -288,6 +587,11 @@
 								class="input-bordered input font-mono text-sm"
 								bind:value={config.seasonFolderFormat}
 							/>
+							{#if previews?.series?.season}
+								<div class="mt-1 font-mono text-xs text-success/80 truncate">
+									{previews.series.season}
+								</div>
+							{/if}
 						</div>
 
 						<div class="form-control">
@@ -306,6 +610,11 @@
 								rows="2"
 								bind:value={config.episodeFileFormat}
 							></textarea>
+							{#if previews?.episode?.file}
+								<div class="mt-1 font-mono text-xs text-success/80 break-all">
+									{previews.episode.file}
+								</div>
+							{/if}
 						</div>
 
 						<div class="form-control">
@@ -324,6 +633,11 @@
 								rows="2"
 								bind:value={config.dailyEpisodeFormat}
 							></textarea>
+							{#if previews?.daily?.file}
+								<div class="mt-1 font-mono text-xs text-success/80 break-all">
+									{previews.daily.file}
+								</div>
+							{/if}
 						</div>
 
 						<div class="form-control">
@@ -342,82 +656,11 @@
 								rows="2"
 								bind:value={config.animeEpisodeFormat}
 							></textarea>
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<!-- Options -->
-			<div class="card bg-base-200">
-				<div
-					class="card-body cursor-pointer p-4"
-					onclick={() => (optionsSectionOpen = !optionsSectionOpen)}
-					onkeydown={(e) => e.key === 'Enter' && (optionsSectionOpen = !optionsSectionOpen)}
-					role="button"
-					tabindex="0"
-				>
-					<div class="flex items-center justify-between">
-						<h2 class="card-title gap-2">Options</h2>
-						{#if optionsSectionOpen}
-							<ChevronUp class="h-5 w-5" />
-						{:else}
-							<ChevronDown class="h-5 w-5" />
-						{/if}
-					</div>
-				</div>
-				{#if optionsSectionOpen}
-					<div class="card-body space-y-4 border-t border-base-300 pt-4">
-						<div class="form-control">
-							<label class="label" for="mediaServerIdFormat">
-								<span class="label-text font-medium">Media Server ID Format</span>
-							</label>
-							<select
-								id="mediaServerIdFormat"
-								class="select-bordered select"
-								bind:value={config.mediaServerIdFormat}
-							>
-								<option value="plex">Plex / Emby: {'{tmdb-12345}'}</option>
-								<option value="jellyfin">Jellyfin: [tmdbid-12345]</option>
-							</select>
-							<div class="label">
-								<span class="label-text-alt text-base-content/60"
-									>Format for {'{MediaId}'} and {'{SeriesId}'} tokens in folder names</span
-								>
-							</div>
-						</div>
-
-						<div class="form-control">
-							<label class="label" for="multiEpisodeStyle">
-								<span class="label-text font-medium">Multi-Episode Style</span>
-							</label>
-							<select
-								id="multiEpisodeStyle"
-								class="select-bordered select"
-								bind:value={config.multiEpisodeStyle}
-							>
-								<option value="range">Range: S01E01-E03</option>
-								<option value="extend">Extend: S01E01E02E03</option>
-								<option value="duplicate">Duplicate: S01E01-E02-E03</option>
-								<option value="scene">Scene: S01E01E02</option>
-								<option value="repeat">Repeat: S01E01 (first only)</option>
-							</select>
-						</div>
-
-						<div class="form-control">
-							<label class="label" for="colonReplacement">
-								<span class="label-text font-medium">Colon Replacement</span>
-							</label>
-							<select
-								id="colonReplacement"
-								class="select-bordered select"
-								bind:value={config.colonReplacement}
-							>
-								<option value="smart">Smart: "Title: Subtitle" becomes "Title - Subtitle"</option>
-								<option value="delete">Delete: Remove colons</option>
-								<option value="dash">Dash: Replace with "-"</option>
-								<option value="spaceDash">Space Dash: Replace with " -"</option>
-								<option value="spaceDashSpace">Space Dash Space: Replace with " - "</option>
-							</select>
+							{#if previews?.anime?.file}
+								<div class="mt-1 font-mono text-xs text-success/80 break-all">
+									{previews.anime.file}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -577,3 +820,60 @@
 		</div>
 	</div>
 </div>
+
+<!-- Save Preset Modal -->
+{#if showSavePresetModal}
+	<div class="modal modal-open">
+		<div class="modal-box">
+			<h3 class="font-bold text-lg mb-4">Save Current Settings as Preset</h3>
+			<div class="form-control mb-4">
+				<label class="label" for="newPresetName">
+					<span class="label-text">Preset Name</span>
+				</label>
+				<input
+					id="newPresetName"
+					type="text"
+					class="input input-bordered"
+					placeholder="My Custom Preset"
+					bind:value={newPresetName}
+				/>
+			</div>
+			<div class="form-control mb-4">
+				<label class="label" for="newPresetDescription">
+					<span class="label-text">Description (optional)</span>
+				</label>
+				<textarea
+					id="newPresetDescription"
+					class="textarea textarea-bordered"
+					placeholder="Description of this preset..."
+					bind:value={newPresetDescription}
+				></textarea>
+			</div>
+			<div class="modal-action">
+				<button
+					class="btn btn-ghost"
+					onclick={() => {
+						showSavePresetModal = false;
+						newPresetName = '';
+						newPresetDescription = '';
+					}}
+				>
+					Cancel
+				</button>
+				<button
+					class="btn btn-primary"
+					onclick={saveAsPreset}
+					disabled={!newPresetName.trim() || savingPreset}
+				>
+					{#if savingPreset}
+						<RefreshCw class="h-4 w-4 animate-spin mr-2" />
+						Saving...
+					{:else}
+						Save Preset
+					{/if}
+				</button>
+			</div>
+		</div>
+		<div class="modal-backdrop" onclick={() => (showSavePresetModal = false)}></div>
+	</div>
+{/if}

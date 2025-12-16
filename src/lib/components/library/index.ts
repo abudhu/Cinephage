@@ -8,6 +8,7 @@ export { default as MediaInfoPopover } from './MediaInfoPopover.svelte';
 export { default as MovieFilesTab } from './MovieFilesTab.svelte';
 export { default as LibraryMovieHeader } from './LibraryMovieHeader.svelte';
 export { default as MovieEditModal } from './MovieEditModal.svelte';
+export { default as RenamePreviewModal } from './RenamePreviewModal.svelte';
 
 // TV Series components
 export { default as LibrarySeriesHeader } from './LibrarySeriesHeader.svelte';

@@ -40,8 +40,7 @@ RUN mkdir -p data logs
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
+# Note: drizzle folder no longer needed - schema sync is embedded in the app
 COPY --from=builder /app/src ./src
 
 # Copy bundled indexers to separate location (not shadowed by volume mount)

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { LibrarySeriesHeader, SeasonAccordion, SeriesEditModal } from '$lib/components/library';
+	import { LibrarySeriesHeader, SeasonAccordion, SeriesEditModal, RenamePreviewModal } from '$lib/components/library';
 	import { TVSeriesSidebar, BulkActionBar } from '$lib/components/library/tv';
 	import { InteractiveSearchModal } from '$lib/components/search';
 	import { SubtitleSearchModal } from '$lib/components/subtitles';
 	import type { SeriesEditData } from '$lib/components/library/SeriesEditModal.svelte';
 	import type { SearchMode } from '$lib/components/search/InteractiveSearchModal.svelte';
-	import { CheckSquare } from 'lucide-svelte';
+	import { CheckSquare, FileEdit } from 'lucide-svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 
 	let { data }: { data: PageData } = $props();
@@ -14,6 +14,7 @@
 	// State
 	let isEditModalOpen = $state(false);
 	let isSearchModalOpen = $state(false);
+	let isRenameModalOpen = $state(false);
 	let isSaving = $state(false);
 	let isRefreshing = $state(false);
 	let _isDeleting = $state(false);
@@ -719,14 +720,24 @@
 		<div class="space-y-4 lg:col-span-2">
 			<div class="flex items-center justify-between">
 				<h2 class="text-lg font-semibold">Seasons</h2>
-				<button
-					class="btn gap-2 btn-ghost btn-sm"
-					onclick={toggleSelectionMode}
-					title={showCheckboxes ? 'Exit selection mode' : 'Select episodes'}
-				>
-					<CheckSquare size={16} />
-					{showCheckboxes ? 'Done' : 'Select'}
-				</button>
+				<div class="flex gap-1">
+					<button
+						class="btn btn-ghost btn-sm gap-1"
+						onclick={() => (isRenameModalOpen = true)}
+						title="Rename files"
+					>
+						<FileEdit class="h-4 w-4" />
+						Rename
+					</button>
+					<button
+						class="btn gap-2 btn-ghost btn-sm"
+						onclick={toggleSelectionMode}
+						title={showCheckboxes ? 'Exit selection mode' : 'Select episodes'}
+					>
+						<CheckSquare size={16} />
+						{showCheckboxes ? 'Done' : 'Select'}
+					</button>
+				</div>
 			</div>
 
 			{#if data.seasons.length === 0}
@@ -817,4 +828,14 @@
 		subtitleSearchContext = null;
 	}}
 	onDownloaded={handleSubtitleDownloaded}
+/>
+
+<!-- Rename Preview Modal -->
+<RenamePreviewModal
+	open={isRenameModalOpen}
+	mediaType="series"
+	mediaId={data.series.id}
+	mediaTitle={data.series.title}
+	onClose={() => (isRenameModalOpen = false)}
+	onRenamed={() => location.reload()}
 />

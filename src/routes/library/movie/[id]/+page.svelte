@@ -1,9 +1,10 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { LibraryMovieHeader, MovieFilesTab, MovieEditModal } from '$lib/components/library';
+	import { LibraryMovieHeader, MovieFilesTab, MovieEditModal, RenamePreviewModal } from '$lib/components/library';
 	import { InteractiveSearchModal } from '$lib/components/search';
 	import { SubtitleSearchModal } from '$lib/components/subtitles';
 	import type { MovieEditData } from '$lib/components/library/MovieEditModal.svelte';
+	import { FileEdit } from 'lucide-svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -11,6 +12,7 @@
 	let isEditModalOpen = $state(false);
 	let isSearchModalOpen = $state(false);
 	let isSubtitleSearchModalOpen = $state(false);
+	let isRenameModalOpen = $state(false);
 	let isSaving = $state(false);
 	let _isDeleting = $state(false);
 	let subtitleAutoSearching = $state(false);
@@ -262,7 +264,18 @@
 		<!-- Files Section (takes 2 columns on large screens) -->
 		<div class="lg:col-span-2">
 			<div class="rounded-xl bg-base-200 p-6">
-				<h2 class="mb-4 text-lg font-semibold">Files</h2>
+				<div class="mb-4 flex items-center justify-between">
+					<h2 class="text-lg font-semibold">Files</h2>
+					{#if data.movie.files.length > 0}
+						<button
+							class="btn btn-ghost btn-sm gap-1"
+							onclick={() => (isRenameModalOpen = true)}
+						>
+							<FileEdit class="h-4 w-4" />
+							Rename
+						</button>
+					{/if}
+				</div>
 				<MovieFilesTab
 					files={data.movie.files}
 					subtitles={data.movie.subtitles}
@@ -387,4 +400,14 @@
 	movieId={data.movie.id}
 	onClose={() => (isSubtitleSearchModalOpen = false)}
 	onDownloaded={handleSubtitleDownloaded}
+/>
+
+<!-- Rename Preview Modal -->
+<RenamePreviewModal
+	open={isRenameModalOpen}
+	mediaType="movie"
+	mediaId={data.movie.id}
+	mediaTitle={data.movie.title}
+	onClose={() => (isRenameModalOpen = false)}
+	onRenamed={() => location.reload()}
 />
