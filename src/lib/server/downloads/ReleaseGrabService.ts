@@ -806,12 +806,34 @@ class ReleaseGrabService {
 			return { success: false, error: 'Series or root folder not found' };
 		}
 
-		// Create .strm files for all episodes in the season
+		// Check which episodes already have files (to avoid race condition with watcher)
+		const seasonEpisodes = await db.query.episodes.findMany({
+			where: and(eq(episodes.seriesId, seriesId), eq(episodes.seasonNumber, seasonNumber))
+		});
+		const episodesNeedingFiles = isUpgrade
+			? seasonEpisodes // For upgrades, process all episodes
+			: seasonEpisodes.filter((ep) => !ep.hasFile);
+
+		if (episodesNeedingFiles.length === 0) {
+			logger.info('[ReleaseGrab] All episodes already have files, skipping season pack', {
+				seriesId,
+				seasonNumber,
+				totalEpisodes: seasonEpisodes.length
+			});
+			return {
+				success: true,
+				releaseName: release.title,
+				episodesCovered: seasonEpisodes.map((ep) => ep.id)
+			};
+		}
+
+		// Create .strm files only for episodes that need them
 		const strmResult = await strmService.createSeasonStrmFiles({
 			seriesId,
 			seasonNumber,
 			tmdbId,
-			baseUrl
+			baseUrl,
+			episodeIds: episodesNeedingFiles.map((ep) => ep.id)
 		});
 
 		if (!strmResult.success || strmResult.results.length === 0) {
@@ -894,9 +916,28 @@ class ReleaseGrabService {
 		let totalSize = 0;
 
 		// Use transaction for all database operations to ensure atomicity
+		// Handle race condition: LibraryWatcher may have already linked some files
 		try {
 			await db.transaction(async (tx) => {
 				for (const epData of episodeFileData) {
+					// Check if file was already linked by the watcher during our operation
+					const existingFile = await tx.query.episodeFiles.findFirst({
+						where: eq(episodeFiles.relativePath, epData.relativePath)
+					});
+
+					if (existingFile && !isUpgrade) {
+						// Watcher already linked this file - skip insert, just record the IDs
+						logger.debug('[ReleaseGrab] File already linked by watcher, using existing record', {
+							episodeId: epData.episodeId,
+							existingFileId: existingFile.id,
+							relativePath: epData.relativePath
+						});
+						createdFileIds.push(existingFile.id);
+						createdEpisodeIds.push(epData.episodeId);
+						totalSize += epData.fileSize;
+						continue;
+					}
+
 					// Delete existing episode file if this is an upgrade
 					if (isUpgrade) {
 						const allSeriesFiles = await tx.query.episodeFiles.findMany({
@@ -964,25 +1005,27 @@ class ReleaseGrabService {
 					});
 				}
 
-				// Create single history record for the entire season pack
-				await tx.insert(downloadHistory).values({
-					title: release.title,
-					indexerId: release.indexerId,
-					indexerName: release.indexerName,
-					protocol: 'streaming',
-					seriesId,
-					episodeIds: createdEpisodeIds,
-					seasonNumber,
-					status: 'streaming',
-					size: totalSize,
-					quality,
-					episodeFileIds: createdFileIds,
-					grabbedAt: new Date().toISOString(),
-					importedAt: new Date().toISOString()
-				});
+				// Only create history record if we did any work
+				if (createdFileIds.length > 0) {
+					await tx.insert(downloadHistory).values({
+						title: release.title,
+						indexerId: release.indexerId,
+						indexerName: release.indexerName,
+						protocol: 'streaming',
+						seriesId,
+						episodeIds: createdEpisodeIds,
+						seasonNumber,
+						status: 'streaming',
+						size: totalSize,
+						quality,
+						episodeFileIds: createdFileIds,
+						grabbedAt: new Date().toISOString(),
+						importedAt: new Date().toISOString()
+					});
+				}
 			});
 		} catch (txError) {
-			// Transaction failed - clean up created .strm files
+			// Transaction failed - clean up created .strm files only if they weren't linked by watcher
 			logger.error('[ReleaseGrab] Transaction failed for streaming season pack, cleaning up', {
 				seriesId,
 				seasonNumber,
@@ -991,10 +1034,24 @@ class ReleaseGrabService {
 
 			for (const epData of episodeFileData) {
 				try {
-					await unlink(epData.filePath);
-					logger.debug('[ReleaseGrab] Cleaned up .strm file after transaction failure', {
-						path: epData.filePath
+					// Check if file was linked by another process (e.g., LibraryWatcher)
+					const existingFile = await db.query.episodeFiles.findFirst({
+						where: eq(episodeFiles.relativePath, epData.relativePath)
 					});
+
+					if (!existingFile) {
+						// File not linked by anyone - safe to delete
+						await unlink(epData.filePath);
+						logger.debug('[ReleaseGrab] Cleaned up .strm file after transaction failure', {
+							path: epData.filePath
+						});
+					} else {
+						// File was linked by watcher - leave it alone
+						logger.debug('[ReleaseGrab] Keeping .strm file - already linked by watcher', {
+							path: epData.filePath,
+							existingFileId: existingFile.id
+						});
+					}
 				} catch {
 					// Ignore cleanup errors
 				}

@@ -60,7 +60,7 @@
 	];
 </script>
 
-<div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+<div class="collapse-arrow collapse rounded-lg border border-base-300 bg-base-100">
 	<input type="checkbox" bind:checked={showSettings} />
 	<div class="collapse-title font-medium">
 		<div class="flex items-center gap-2">
@@ -74,9 +74,12 @@
 			<div class="grid grid-cols-2 gap-4">
 				<div class="form-control">
 					<label class="label py-1" for="sortBy">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Sort By</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Sort By</span
+						>
 					</label>
-					<select id="sortBy" bind:value={sortBy} class="select select-bordered select-sm w-full">
+					<select id="sortBy" bind:value={sortBy} class="select-bordered select w-full select-sm">
 						{#each sortOptions as opt (opt.value)}
 							<option value={opt.value}>{opt.label}</option>
 						{/each}
@@ -84,7 +87,10 @@
 				</div>
 				<div class="form-control">
 					<label class="label py-1" for="itemLimit">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Max Items</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Max Items</span
+						>
 					</label>
 					<input
 						type="number"
@@ -92,7 +98,7 @@
 						bind:value={itemLimit}
 						min="1"
 						max="1000"
-						class="input input-bordered input-sm w-full"
+						class="input-bordered input input-sm w-full"
 					/>
 				</div>
 			</div>
@@ -100,9 +106,15 @@
 			<!-- Refresh Interval -->
 			<div class="form-control">
 				<label class="label py-1" for="refreshInterval">
-					<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Refresh Interval</span>
+					<span class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+						>Refresh Interval</span
+					>
 				</label>
-				<select id="refreshInterval" bind:value={refreshIntervalHours} class="select select-bordered select-sm w-full">
+				<select
+					id="refreshInterval"
+					bind:value={refreshIntervalHours}
+					class="select-bordered select w-full select-sm"
+				>
 					{#each intervalOptions as opt (opt.value)}
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
@@ -111,7 +123,11 @@
 
 			<!-- Exclude in Library -->
 			<label class="flex cursor-pointer items-center gap-3 rounded-lg border border-base-300 p-3">
-				<input type="checkbox" bind:checked={excludeInLibrary} class="checkbox checkbox-sm checkbox-primary" />
+				<input
+					type="checkbox"
+					bind:checked={excludeInLibrary}
+					class="checkbox checkbox-sm checkbox-primary"
+				/>
 				<span class="label-text">Exclude items already in library</span>
 			</label>
 
@@ -125,9 +141,15 @@
 
 			<div class="form-control">
 				<label class="label py-1" for="autoAdd">
-					<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Auto Search</span>
+					<span class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+						>Auto Search</span
+					>
 				</label>
-				<select id="autoAdd" bind:value={autoAddBehavior} class="select select-bordered select-sm w-full">
+				<select
+					id="autoAdd"
+					bind:value={autoAddBehavior}
+					class="select-bordered select w-full select-sm"
+				>
 					<option value="disabled">Disabled</option>
 					<option value="add_only">Add to library only</option>
 					<option value="add_and_search">Add and search for downloads</option>
@@ -138,9 +160,16 @@
 				<div class="space-y-3 rounded-lg border border-base-300 bg-base-200/30 p-3">
 					<div class="form-control">
 						<label class="label py-1" for="rootFolder">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Root Folder</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Root Folder</span
+							>
 						</label>
-						<select id="rootFolder" bind:value={rootFolderId} class="select select-bordered select-sm w-full">
+						<select
+							id="rootFolder"
+							bind:value={rootFolderId}
+							class="select-bordered select w-full select-sm"
+						>
 							<option value="">Select a folder...</option>
 							{#each rootFolders as folder (folder.id)}
 								<option value={folder.id}>{folder.path}</option>
@@ -150,9 +179,16 @@
 
 					<div class="form-control">
 						<label class="label py-1" for="scoringProfile">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Scoring Profile</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Scoring Profile</span
+							>
 						</label>
-						<select id="scoringProfile" bind:value={scoringProfileId} class="select select-bordered select-sm w-full">
+						<select
+							id="scoringProfile"
+							bind:value={scoringProfileId}
+							class="select-bordered select w-full select-sm"
+						>
 							<option value="">Default</option>
 							{#each scoringProfiles as profile (profile.id)}
 								<option value={profile.id}>{profile.name}</option>
@@ -161,7 +197,11 @@
 					</div>
 
 					<label class="flex cursor-pointer items-center gap-3">
-						<input type="checkbox" bind:checked={autoAddMonitored} class="checkbox checkbox-sm checkbox-primary" />
+						<input
+							type="checkbox"
+							bind:checked={autoAddMonitored}
+							class="checkbox checkbox-sm checkbox-primary"
+						/>
 						<span class="label-text">Monitor added items</span>
 					</label>
 				</div>

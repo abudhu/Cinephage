@@ -132,7 +132,11 @@ export class SmartListService {
 		}
 		if (input.enabled !== undefined) updates.enabled = input.enabled;
 
-		const [result] = await db.update(smartLists).set(updates).where(eq(smartLists.id, id)).returning();
+		const [result] = await db
+			.update(smartLists)
+			.set(updates)
+			.where(eq(smartLists.id, id))
+			.returning();
 
 		logger.info('[SmartListService] Updated smart list', { id, updates: Object.keys(input) });
 
@@ -169,10 +173,7 @@ export class SmartListService {
 	// Refresh Operations
 	// =========================================================================
 
-	async refreshSmartList(
-		id: string,
-		refreshType: 'automatic' | 'manual'
-	): Promise<RefreshResult> {
+	async refreshSmartList(id: string, refreshType: 'automatic' | 'manual'): Promise<RefreshResult> {
 		const startTime = Date.now();
 		const list = await this.getSmartList(id);
 
@@ -269,9 +270,7 @@ export class SmartListService {
 							lastSeenAt: now,
 							updatedAt: now
 						})
-						.where(
-							and(eq(smartListItems.smartListId, id), eq(smartListItems.tmdbId, item.id))
-						);
+						.where(and(eq(smartListItems.smartListId, id), eq(smartListItems.tmdbId, item.id)));
 				}
 			}
 
@@ -405,10 +404,7 @@ export class SmartListService {
 	async refreshAllDueLists(): Promise<RefreshResult[]> {
 		const now = new Date().toISOString();
 		const dueLists = await db.query.smartLists.findMany({
-			where: and(
-				eq(smartLists.enabled, true),
-				sql`${smartLists.nextRefreshTime} <= ${now}`
-			)
+			where: and(eq(smartLists.enabled, true), sql`${smartLists.nextRefreshTime} <= ${now}`)
 		});
 
 		logger.info('[SmartListService] Refreshing due lists', { count: dueLists.length });
@@ -439,7 +435,13 @@ export class SmartListService {
 		totalPages: number;
 		totalItems: number;
 	}> {
-		const { page = 1, limit = 50, inLibrary, isExcluded = false, includeExcluded = false } = options;
+		const {
+			page = 1,
+			limit = 50,
+			inLibrary,
+			isExcluded = false,
+			includeExcluded = false
+		} = options;
 		const offset = (page - 1) * limit;
 
 		const conditions = [eq(smartListItems.smartListId, id)];
@@ -488,9 +490,7 @@ export class SmartListService {
 				excludedAt: new Date().toISOString(),
 				updatedAt: new Date().toISOString()
 			})
-			.where(
-				and(eq(smartListItems.smartListId, smartListId), eq(smartListItems.tmdbId, tmdbId))
-			);
+			.where(and(eq(smartListItems.smartListId, smartListId), eq(smartListItems.tmdbId, tmdbId)));
 
 		// Also add to list's excludedTmdbIds
 		const list = await this.getSmartList(smartListId);
@@ -516,9 +516,7 @@ export class SmartListService {
 				excludedAt: null,
 				updatedAt: new Date().toISOString()
 			})
-			.where(
-				and(eq(smartListItems.smartListId, smartListId), eq(smartListItems.tmdbId, tmdbId))
-			);
+			.where(and(eq(smartListItems.smartListId, smartListId), eq(smartListItems.tmdbId, tmdbId)));
 
 		// Remove from list's excludedTmdbIds
 		const list = await this.getSmartList(smartListId);
@@ -650,9 +648,7 @@ export class SmartListService {
 		// Genres
 		if (filters.withGenres?.length) {
 			params.with_genres =
-				filters.genreMode === 'and'
-					? filters.withGenres.join(',')
-					: filters.withGenres.join('|');
+				filters.genreMode === 'and' ? filters.withGenres.join(',') : filters.withGenres.join('|');
 		}
 		if (filters.withoutGenres?.length) {
 			params.without_genres = filters.withoutGenres.join(',');

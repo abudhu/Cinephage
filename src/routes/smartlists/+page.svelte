@@ -107,7 +107,7 @@
 					Create your first smart list to automatically discover movies and TV shows based on your
 					preferences.
 				</p>
-				<button class="btn btn-primary mt-4" onclick={navigateToCreate}>
+				<button class="btn mt-4 btn-primary" onclick={navigateToCreate}>
 					<Plus class="h-4 w-4" />
 					Create Smart List
 				</button>
@@ -150,7 +150,7 @@
 								{list.itemsInLibrary ?? 0} in library
 							</div>
 							{#if list.autoAddBehavior !== 'disabled'}
-								<div class="badge badge-info badge-outline">Auto-add</div>
+								<div class="badge badge-outline badge-info">Auto-add</div>
 							{/if}
 						</div>
 
@@ -169,7 +169,7 @@
 							</div>
 						</div>
 
-						<div class="card-actions mt-2 justify-end">
+						<div class="mt-2 card-actions justify-end">
 							<button
 								class="btn btn-ghost btn-sm"
 								onclick={() => navigateToDetail(list.id)}
@@ -183,9 +183,7 @@
 								disabled={refreshingIds.has(list.id)}
 								title="Refresh"
 							>
-								<RefreshCw
-									class="h-4 w-4 {refreshingIds.has(list.id) ? 'animate-spin' : ''}"
-								/>
+								<RefreshCw class="h-4 w-4 {refreshingIds.has(list.id) ? 'animate-spin' : ''}" />
 							</button>
 							<button
 								class="btn btn-ghost btn-sm"
@@ -195,7 +193,7 @@
 								<Edit class="h-4 w-4" />
 							</button>
 							<button
-								class="btn btn-ghost btn-error btn-sm"
+								class="btn btn-ghost btn-sm btn-error"
 								onclick={() => deleteList(list.id)}
 								disabled={deletingIds.has(list.id)}
 								title="Delete"
@@ -209,4 +207,3 @@
 		</div>
 	{/if}
 </div>
-

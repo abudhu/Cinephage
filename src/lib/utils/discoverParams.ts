@@ -37,6 +37,7 @@ export function parseDiscoverParams(searchParams: URLSearchParams): DiscoverPara
  */
 export function isDefaultView(searchParams: URLSearchParams, params: DiscoverParams): boolean {
 	return (
+		(!searchParams.has('type') || searchParams.get('type') === 'all') &&
 		!searchParams.has('with_watch_providers') &&
 		!searchParams.has('with_genres') &&
 		!searchParams.has('primary_release_date.gte') &&

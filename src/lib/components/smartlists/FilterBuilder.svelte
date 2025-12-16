@@ -15,7 +15,9 @@
 	// Helper data
 	let genres = $state<Array<{ id: number; name: string }>>([]);
 	let loadingGenres = $state(false);
-	let providers = $state<Array<{ provider_id: number; provider_name: string; logo_path: string }>>([]);
+	let providers = $state<Array<{ provider_id: number; provider_name: string; logo_path: string }>>(
+		[]
+	);
 	let loadingProviders = $state(false);
 	let certifications = $state<Array<{ certification: string; meaning: string; order: number }>>([]);
 	let loadingCertifications = $state(false);
@@ -92,7 +94,9 @@
 	async function loadProviders() {
 		loadingProviders = true;
 		try {
-			const res = await fetch(`/api/smartlists/helpers?helper=providers&type=${mediaType}&region=${filters.watchRegion ?? 'US'}`);
+			const res = await fetch(
+				`/api/smartlists/helpers?helper=providers&type=${mediaType}&region=${filters.watchRegion ?? 'US'}`
+			);
 			if (res.ok) {
 				providers = await res.json();
 			}
@@ -135,7 +139,9 @@
 		}
 		searchingPeople = true;
 		try {
-			const res = await fetch(`/api/smartlists/helpers?helper=people&q=${encodeURIComponent(peopleQuery)}`);
+			const res = await fetch(
+				`/api/smartlists/helpers?helper=people&q=${encodeURIComponent(peopleQuery)}`
+			);
 			if (res.ok) {
 				peopleResults = await res.json();
 			}
@@ -151,7 +157,9 @@
 		}
 		searchingKeywords = true;
 		try {
-			const res = await fetch(`/api/smartlists/helpers?helper=keywords&q=${encodeURIComponent(keywordQuery)}`);
+			const res = await fetch(
+				`/api/smartlists/helpers?helper=keywords&q=${encodeURIComponent(keywordQuery)}`
+			);
 			if (res.ok) {
 				keywordResults = await res.json();
 			}
@@ -240,12 +248,18 @@
 		if (exclude) {
 			if (!filters.withoutKeywords?.includes(keyword.id)) {
 				filters.withoutKeywords = [...(filters.withoutKeywords ?? []), keyword.id];
-				selectedKeywords = [...selectedKeywords, { id: keyword.id, name: keyword.name, exclude: true }];
+				selectedKeywords = [
+					...selectedKeywords,
+					{ id: keyword.id, name: keyword.name, exclude: true }
+				];
 			}
 		} else {
 			if (!filters.withKeywords?.includes(keyword.id)) {
 				filters.withKeywords = [...(filters.withKeywords ?? []), keyword.id];
-				selectedKeywords = [...selectedKeywords, { id: keyword.id, name: keyword.name, exclude: false }];
+				selectedKeywords = [
+					...selectedKeywords,
+					{ id: keyword.id, name: keyword.name, exclude: false }
+				];
 			}
 		}
 		keywordQuery = '';
@@ -258,7 +272,9 @@
 		} else {
 			filters.withKeywords = (filters.withKeywords ?? []).filter((id) => id !== keywordId);
 		}
-		selectedKeywords = selectedKeywords.filter((k) => !(k.id === keywordId && k.exclude === exclude));
+		selectedKeywords = selectedKeywords.filter(
+			(k) => !(k.id === keywordId && k.exclude === exclude)
+		);
 	}
 
 	// Debounce search
@@ -278,7 +294,7 @@
 
 <div class="space-y-3">
 	<!-- Basic Filters -->
-	<div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+	<div class="collapse-arrow collapse rounded-lg border border-base-300 bg-base-100">
 		<input
 			type="checkbox"
 			checked={openSections.has('basic')}
@@ -290,9 +306,12 @@
 				<!-- Genres Include -->
 				<div class="form-control">
 					<label class="label py-1">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Include Genres</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Include Genres</span
+						>
 						{#if filters.withGenres?.length}
-							<span class="badge badge-primary badge-sm">{filters.withGenres.length}</span>
+							<span class="badge badge-sm badge-primary">{filters.withGenres.length}</span>
 						{/if}
 					</label>
 					{#if loadingGenres}
@@ -307,7 +326,7 @@
 									type="button"
 									class="badge cursor-pointer transition-all {isGenreIncluded(genre.id)
 										? 'badge-primary'
-										: 'badge-ghost hover:badge-primary/30'}"
+										: 'hover:badge-primary/30 badge-ghost'}"
 									onclick={() => toggleGenre(genre.id, true)}
 								>
 									{genre.name}
@@ -320,9 +339,12 @@
 				<!-- Genres Exclude -->
 				<div class="form-control">
 					<label class="label py-1">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Exclude Genres</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Exclude Genres</span
+						>
 						{#if filters.withoutGenres?.length}
-							<span class="badge badge-error badge-sm">{filters.withoutGenres.length}</span>
+							<span class="badge badge-sm badge-error">{filters.withoutGenres.length}</span>
 						{/if}
 					</label>
 					<div class="flex flex-wrap gap-1.5">
@@ -331,7 +353,7 @@
 								type="button"
 								class="badge cursor-pointer transition-all {isGenreExcluded(genre.id)
 									? 'badge-error'
-									: 'badge-ghost hover:badge-error/30'}"
+									: 'hover:badge-error/30 badge-ghost'}"
 								onclick={() => toggleGenre(genre.id, false)}
 							>
 								{genre.name}
@@ -344,40 +366,46 @@
 				{#if filters.withGenres && filters.withGenres.length > 1}
 					<div class="form-control">
 						<label class="label py-1">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Genre Match Mode</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Genre Match Mode</span
+							>
 						</label>
 						<div class="flex gap-4">
 							<label class="label cursor-pointer gap-2">
-							<input
-								type="radio"
-								name="genreMode"
-								class="radio radio-sm"
-								value="or"
-								checked={filters.genreMode !== 'and'}
-								onchange={() => (filters.genreMode = 'or')}
-							/>
-							<span class="text-sm">Match any</span>
-						</label>
-						<label class="label cursor-pointer gap-2">
-							<input
-								type="radio"
-								name="genreMode"
-								class="radio radio-sm"
-								value="and"
-								checked={filters.genreMode === 'and'}
-								onchange={() => (filters.genreMode = 'and')}
-							/>
-							<span class="text-sm">Match all</span>
-						</label>
+								<input
+									type="radio"
+									name="genreMode"
+									class="radio radio-sm"
+									value="or"
+									checked={filters.genreMode !== 'and'}
+									onchange={() => (filters.genreMode = 'or')}
+								/>
+								<span class="text-sm">Match any</span>
+							</label>
+							<label class="label cursor-pointer gap-2">
+								<input
+									type="radio"
+									name="genreMode"
+									class="radio radio-sm"
+									value="and"
+									checked={filters.genreMode === 'and'}
+									onchange={() => (filters.genreMode = 'and')}
+								/>
+								<span class="text-sm">Match all</span>
+							</label>
+						</div>
 					</div>
-				</div>
-			{/if}
+				{/if}
 
 				<!-- Year Range -->
 				<div class="grid grid-cols-2 gap-4">
 					<div class="form-control">
 						<label class="label py-1" for="yearMin">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Year From</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Year From</span
+							>
 						</label>
 						<input
 							type="number"
@@ -386,12 +414,15 @@
 							placeholder="1900"
 							min="1900"
 							max="2030"
-							class="input input-bordered input-sm w-full"
+							class="input-bordered input input-sm w-full"
 						/>
 					</div>
 					<div class="form-control">
 						<label class="label py-1" for="yearMax">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Year To</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Year To</span
+							>
 						</label>
 						<input
 							type="number"
@@ -400,7 +431,7 @@
 							placeholder="2025"
 							min="1900"
 							max="2030"
-							class="input input-bordered input-sm w-full"
+							class="input-bordered input input-sm w-full"
 						/>
 					</div>
 				</div>
@@ -409,7 +440,10 @@
 				<div class="grid grid-cols-2 gap-4">
 					<div class="form-control">
 						<label class="label py-1" for="ratingMin">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Min Rating</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Min Rating</span
+							>
 						</label>
 						<input
 							type="number"
@@ -419,12 +453,15 @@
 							min="0"
 							max="10"
 							step="0.5"
-							class="input input-bordered input-sm w-full"
+							class="input-bordered input input-sm w-full"
 						/>
 					</div>
 					<div class="form-control">
 						<label class="label py-1" for="voteCount">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Min Votes</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Min Votes</span
+							>
 						</label>
 						<input
 							type="number"
@@ -432,7 +469,7 @@
 							bind:value={filters.voteCountMin}
 							placeholder="100"
 							min="0"
-							class="input input-bordered input-sm w-full"
+							class="input-bordered input input-sm w-full"
 						/>
 					</div>
 				</div>
@@ -441,7 +478,7 @@
 	</div>
 
 	<!-- Content Filters -->
-	<div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+	<div class="collapse-arrow collapse rounded-lg border border-base-300 bg-base-100">
 		<input
 			type="checkbox"
 			checked={openSections.has('content')}
@@ -453,71 +490,81 @@
 				<!-- Keywords -->
 				<div class="form-control">
 					<label class="label py-1">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Keywords</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Keywords</span
+						>
 					</label>
-				<div class="relative">
-					<input
-						type="text"
-						bind:value={keywordQuery}
-						oninput={handleKeywordInput}
-						placeholder="Search keywords..."
-						class="input input-bordered input-sm w-full"
-					/>
-					{#if searchingKeywords}
-						<Loader2 class="absolute right-3 top-2 h-4 w-4 animate-spin" />
+					<div class="relative">
+						<input
+							type="text"
+							bind:value={keywordQuery}
+							oninput={handleKeywordInput}
+							placeholder="Search keywords..."
+							class="input-bordered input input-sm w-full"
+						/>
+						{#if searchingKeywords}
+							<Loader2 class="absolute top-2 right-3 h-4 w-4 animate-spin" />
+						{/if}
+					</div>
+					{#if keywordResults.length > 0}
+						<div
+							class="mt-1 max-h-32 overflow-y-auto rounded-lg border border-base-300 bg-base-100"
+						>
+							{#each keywordResults as keyword (keyword.id)}
+								<div
+									class="flex items-center justify-between border-b border-base-200 p-2 last:border-0"
+								>
+									<span class="text-sm">{keyword.name}</span>
+									<div class="flex gap-1">
+										<button
+											type="button"
+											class="btn btn-xs btn-success"
+											onclick={() => addKeyword(keyword, false)}
+											title="Include"
+										>
+											<Plus class="h-3 w-3" />
+										</button>
+										<button
+											type="button"
+											class="btn btn-xs btn-error"
+											onclick={() => addKeyword(keyword, true)}
+											title="Exclude"
+										>
+											<X class="h-3 w-3" />
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
 					{/if}
-				</div>
-				{#if keywordResults.length > 0}
-					<div class="mt-1 max-h-32 overflow-y-auto rounded-lg border border-base-300 bg-base-100">
-						{#each keywordResults as keyword (keyword.id)}
-							<div class="flex items-center justify-between border-b border-base-200 p-2 last:border-0">
-								<span class="text-sm">{keyword.name}</span>
-								<div class="flex gap-1">
-									<button
-										type="button"
-										class="btn btn-success btn-xs"
-										onclick={() => addKeyword(keyword, false)}
-										title="Include"
-									>
-										<Plus class="h-3 w-3" />
-									</button>
-									<button
-										type="button"
-										class="btn btn-error btn-xs"
-										onclick={() => addKeyword(keyword, true)}
-										title="Exclude"
-									>
+					<!-- Selected Keywords -->
+					{#if selectedKeywords.length > 0}
+						<div class="mt-2 flex flex-wrap gap-1">
+							{#each selectedKeywords as kw (kw.id + (kw.exclude ? '-ex' : ''))}
+								<span class="badge {kw.exclude ? 'badge-error' : 'badge-success'} gap-1">
+									{kw.name}
+									<button type="button" onclick={() => removeKeyword(kw.id, kw.exclude)}>
 										<X class="h-3 w-3" />
 									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-				<!-- Selected Keywords -->
-				{#if selectedKeywords.length > 0}
-					<div class="mt-2 flex flex-wrap gap-1">
-						{#each selectedKeywords as kw (kw.id + (kw.exclude ? '-ex' : ''))}
-							<span class="badge {kw.exclude ? 'badge-error' : 'badge-success'} gap-1">
-								{kw.name}
-								<button type="button" onclick={() => removeKeyword(kw.id, kw.exclude)}>
-									<X class="h-3 w-3" />
-								</button>
-							</span>
-						{/each}
-					</div>
-				{/if}
-			</div>
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</div>
 
 				<!-- Language -->
 				<div class="form-control">
 					<label class="label py-1" for="language">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Original Language</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Original Language</span
+						>
 					</label>
 					<select
 						id="language"
 						bind:value={filters.withOriginalLanguage}
-						class="select select-bordered select-sm w-full"
+						class="select-bordered select w-full select-sm"
 					>
 						<option value="">Any Language</option>
 						{#if loadingLanguages}
@@ -534,7 +581,10 @@
 				<div class="grid grid-cols-2 gap-4">
 					<div class="form-control">
 						<label class="label py-1" for="runtimeMin">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Min Runtime</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Min Runtime</span
+							>
 						</label>
 						<input
 							type="number"
@@ -542,12 +592,15 @@
 							bind:value={filters.runtimeMin}
 							placeholder="0"
 							min="0"
-							class="input input-bordered input-sm w-full"
+							class="input-bordered input input-sm w-full"
 						/>
 					</div>
 					<div class="form-control">
 						<label class="label py-1" for="runtimeMax">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Max Runtime</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Max Runtime</span
+							>
 						</label>
 						<input
 							type="number"
@@ -555,7 +608,7 @@
 							bind:value={filters.runtimeMax}
 							placeholder="300"
 							min="0"
-							class="input input-bordered input-sm w-full"
+							class="input-bordered input input-sm w-full"
 						/>
 					</div>
 				</div>
@@ -563,12 +616,15 @@
 				<!-- Certification -->
 				<div class="form-control">
 					<label class="label py-1" for="certification">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Age Rating</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Age Rating</span
+						>
 					</label>
 					<select
 						id="certification"
 						bind:value={filters.certification}
-						class="select select-bordered select-sm w-full"
+						class="select-bordered select w-full select-sm"
 					>
 						<option value="">Any Rating</option>
 						{#if loadingCertifications}
@@ -585,7 +641,7 @@
 	</div>
 
 	<!-- People Filters -->
-	<div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+	<div class="collapse-arrow collapse rounded-lg border border-base-300 bg-base-100">
 		<input
 			type="checkbox"
 			checked={openSections.has('people')}
@@ -596,78 +652,89 @@
 			<div class="space-y-4 pt-2">
 				<div class="form-control">
 					<label class="label py-1">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Cast & Crew</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Cast & Crew</span
+						>
 					</label>
-				<div class="relative">
-					<input
-						type="text"
-						bind:value={peopleQuery}
-						oninput={handlePeopleInput}
-						placeholder="Search actors, directors..."
-						class="input input-bordered input-sm w-full"
-					/>
-					{#if searchingPeople}
-						<Loader2 class="absolute right-3 top-2 h-4 w-4 animate-spin" />
+					<div class="relative">
+						<input
+							type="text"
+							bind:value={peopleQuery}
+							oninput={handlePeopleInput}
+							placeholder="Search actors, directors..."
+							class="input-bordered input input-sm w-full"
+						/>
+						{#if searchingPeople}
+							<Loader2 class="absolute top-2 right-3 h-4 w-4 animate-spin" />
+						{/if}
+					</div>
+					{#if peopleResults.length > 0}
+						<div
+							class="mt-1 max-h-40 overflow-y-auto rounded-lg border border-base-300 bg-base-100"
+						>
+							{#each peopleResults as person (person.id)}
+								<div
+									class="flex items-center justify-between border-b border-base-200 p-2 last:border-0"
+								>
+									<div class="flex items-center gap-2">
+										{#if person.profile_path}
+											<img
+												src="https://image.tmdb.org/t/p/w45{person.profile_path}"
+												alt={person.name}
+												class="h-8 w-8 rounded-full object-cover"
+											/>
+										{:else}
+											<div
+												class="flex h-8 w-8 items-center justify-center rounded-full bg-base-300"
+											>
+												<span class="text-xs">{person.name.charAt(0)}</span>
+											</div>
+										{/if}
+										<span class="text-sm">{person.name}</span>
+									</div>
+									<div class="flex gap-1">
+										<button
+											type="button"
+											class="btn btn-xs btn-primary"
+											onclick={() => addPerson(person, 'cast')}
+										>
+											Cast
+										</button>
+										<button
+											type="button"
+											class="btn btn-xs btn-secondary"
+											onclick={() => addPerson(person, 'crew')}
+										>
+											Crew
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
 					{/if}
-				</div>
-				{#if peopleResults.length > 0}
-					<div class="mt-1 max-h-40 overflow-y-auto rounded-lg border border-base-300 bg-base-100">
-						{#each peopleResults as person (person.id)}
-							<div class="flex items-center justify-between border-b border-base-200 p-2 last:border-0">
-								<div class="flex items-center gap-2">
-									{#if person.profile_path}
-										<img
-											src="https://image.tmdb.org/t/p/w45{person.profile_path}"
-											alt={person.name}
-											class="h-8 w-8 rounded-full object-cover"
-										/>
-									{:else}
-										<div class="flex h-8 w-8 items-center justify-center rounded-full bg-base-300">
-											<span class="text-xs">{person.name.charAt(0)}</span>
-										</div>
-									{/if}
-									<span class="text-sm">{person.name}</span>
-								</div>
-								<div class="flex gap-1">
-									<button
-										type="button"
-										class="btn btn-primary btn-xs"
-										onclick={() => addPerson(person, 'cast')}
-									>
-										Cast
+					<!-- Selected People -->
+					{#if selectedPeople.length > 0}
+						<div class="mt-2 flex flex-wrap gap-1">
+							{#each selectedPeople as person (person.id + '-' + person.type)}
+								<span
+									class="badge {person.type === 'cast' ? 'badge-primary' : 'badge-secondary'} gap-1"
+								>
+									{person.name}
+									<button type="button" onclick={() => removePerson(person.id, person.type)}>
+										<X class="h-3 w-3" />
 									</button>
-									<button
-										type="button"
-										class="btn btn-secondary btn-xs"
-										onclick={() => addPerson(person, 'crew')}
-									>
-										Crew
-									</button>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
-				<!-- Selected People -->
-				{#if selectedPeople.length > 0}
-					<div class="mt-2 flex flex-wrap gap-1">
-						{#each selectedPeople as person (person.id + '-' + person.type)}
-							<span class="badge {person.type === 'cast' ? 'badge-primary' : 'badge-secondary'} gap-1">
-								{person.name}
-								<button type="button" onclick={() => removePerson(person.id, person.type)}>
-									<X class="h-3 w-3" />
-								</button>
-							</span>
-						{/each}
-					</div>
-				{/if}
+								</span>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
 	</div>
 
 	<!-- Platform Filters -->
-	<div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+	<div class="collapse-arrow collapse rounded-lg border border-base-300 bg-base-100">
 		<input
 			type="checkbox"
 			checked={openSections.has('platform')}
@@ -679,12 +746,15 @@
 				<!-- Watch Region -->
 				<div class="form-control">
 					<label class="label py-1" for="watchRegion">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Region</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Region</span
+						>
 					</label>
 					<select
 						id="watchRegion"
 						bind:value={filters.watchRegion}
-						class="select select-bordered select-sm w-full"
+						class="select-bordered select w-full select-sm"
 						onchange={() => loadProviders()}
 					>
 						<option value="US">United States</option>
@@ -703,9 +773,12 @@
 				<!-- Providers Grid -->
 				<div class="form-control">
 					<label class="label py-1">
-						<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Available On</span>
+						<span
+							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+							>Available On</span
+						>
 						{#if filters.withWatchProviders?.length}
-							<span class="badge badge-primary badge-sm">{filters.withWatchProviders.length}</span>
+							<span class="badge badge-sm badge-primary">{filters.withWatchProviders.length}</span>
 						{/if}
 					</label>
 					{#if loadingProviders}
@@ -718,7 +791,9 @@
 							{#each providers.slice(0, 24) as provider (provider.provider_id)}
 								<button
 									type="button"
-									class="relative aspect-square overflow-hidden rounded-lg border-2 transition-all {isProviderSelected(provider.provider_id)
+									class="relative aspect-square overflow-hidden rounded-lg border-2 transition-all {isProviderSelected(
+										provider.provider_id
+									)
 										? 'border-primary ring-2 ring-primary/30'
 										: 'border-base-300 opacity-60 hover:opacity-100'}"
 									onclick={() => toggleProvider(provider.provider_id)}
@@ -740,7 +815,7 @@
 
 	<!-- Media Type Specific -->
 	{#if mediaType === 'tv'}
-		<div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-100">
+		<div class="collapse-arrow collapse rounded-lg border border-base-300 bg-base-100">
 			<input
 				type="checkbox"
 				checked={openSections.has('tv')}
@@ -751,12 +826,15 @@
 				<div class="pt-2">
 					<div class="form-control">
 						<label class="label py-1" for="tvStatus">
-							<span class="label-text text-xs font-medium uppercase tracking-wide text-base-content/60">Show Status</span>
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Show Status</span
+							>
 						</label>
 						<select
 							id="tvStatus"
 							bind:value={filters.withStatus}
-							class="select select-bordered select-sm w-full"
+							class="select-bordered select w-full select-sm"
 						>
 							<option value="">Any Status</option>
 							<option value="0">Returning Series</option>

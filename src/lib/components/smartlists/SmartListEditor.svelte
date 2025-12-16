@@ -203,7 +203,7 @@
 <div class="w-full">
 	<!-- Header -->
 	<div class="mb-6">
-		<button class="btn btn-ghost btn-sm gap-1" onclick={handleCancel}>
+		<button class="btn gap-1 btn-ghost btn-sm" onclick={handleCancel}>
 			<ArrowLeft class="h-4 w-4" />
 			Back to Smart Lists
 		</button>
@@ -221,7 +221,7 @@
 					type="text"
 					bind:value={name}
 					placeholder="Smart List Name"
-					class="input input-ghost -ml-4 w-64 text-2xl font-bold focus:bg-base-200"
+					class="input -ml-4 w-64 input-ghost text-2xl font-bold focus:bg-base-200"
 				/>
 			</div>
 		</div>
@@ -230,14 +230,14 @@
 			<!-- Media Type Toggle -->
 			<div class="join">
 				<button
-					class="btn btn-sm join-item {mediaType === 'movie' ? 'btn-active' : ''}"
+					class="btn join-item btn-sm {mediaType === 'movie' ? 'btn-active' : ''}"
 					onclick={() => handleMediaTypeChange('movie')}
 				>
 					<Film class="h-4 w-4" />
 					Movies
 				</button>
 				<button
-					class="btn btn-sm join-item {mediaType === 'tv' ? 'btn-active' : ''}"
+					class="btn join-item btn-sm {mediaType === 'tv' ? 'btn-active' : ''}"
 					onclick={() => handleMediaTypeChange('tv')}
 				>
 					<Tv class="h-4 w-4" />
@@ -257,7 +257,7 @@
 	</div>
 
 	{#if error}
-		<div class="alert alert-error mb-4 py-2">
+		<div class="mb-4 alert py-2 alert-error">
 			<span>{error}</span>
 		</div>
 	{/if}
@@ -271,15 +271,12 @@
 				<textarea
 					bind:value={description}
 					placeholder="Description (optional)"
-					class="textarea textarea-bordered h-16 resize-none"
+					class="textarea-bordered textarea h-16 resize-none"
 				></textarea>
 			</div>
 
 			<!-- Filters -->
-			<FilterBuilder
-				{mediaType}
-				bind:filters
-			/>
+			<FilterBuilder {mediaType} bind:filters />
 
 			<!-- Settings -->
 			<SettingsPanel

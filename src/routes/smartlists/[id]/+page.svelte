@@ -131,7 +131,7 @@
 
 <div class="w-full p-4">
 	<div class="mb-6">
-		<a href="/smartlists" class="btn btn-ghost btn-sm gap-1">
+		<a href="/smartlists" class="btn gap-1 btn-ghost btn-sm">
 			<ArrowLeft class="h-4 w-4" />
 			Back to Smart Lists
 		</a>
@@ -156,24 +156,16 @@
 				<div class="badge badge-ghost">{data.pagination.totalItems} items</div>
 				<div class="badge badge-ghost">{data.list.itemsInLibrary ?? 0} in library</div>
 				{#if data.list.autoAddBehavior !== 'disabled'}
-					<div class="badge badge-info badge-outline">Auto-add enabled</div>
+					<div class="badge badge-outline badge-info">Auto-add enabled</div>
 				{/if}
 			</div>
 		</div>
 		<div class="flex gap-2">
-			<button
-				class="btn btn-outline btn-sm"
-				onclick={refreshList}
-				disabled={refreshing}
-			>
+			<button class="btn btn-outline btn-sm" onclick={refreshList} disabled={refreshing}>
 				<RefreshCw class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" />
 				Refresh
 			</button>
-			<button
-				class="btn btn-primary btn-sm"
-				onclick={addAllToLibrary}
-				disabled={bulkAdding}
-			>
+			<button class="btn btn-sm btn-primary" onclick={addAllToLibrary} disabled={bulkAdding}>
 				{#if bulkAdding}
 					<Loader2 class="h-4 w-4 animate-spin" />
 				{:else}
@@ -187,7 +179,7 @@
 	<div class="mb-4 flex flex-wrap items-center gap-4">
 		<div class="join">
 			<button
-				class="btn btn-sm join-item {filterInLibrary === 'all' ? 'btn-active' : ''}"
+				class="btn join-item btn-sm {filterInLibrary === 'all' ? 'btn-active' : ''}"
 				onclick={() => {
 					filterInLibrary = 'all';
 					applyFilters();
@@ -196,7 +188,7 @@
 				All
 			</button>
 			<button
-				class="btn btn-sm join-item {filterInLibrary === 'out' ? 'btn-active' : ''}"
+				class="btn join-item btn-sm {filterInLibrary === 'out' ? 'btn-active' : ''}"
 				onclick={() => {
 					filterInLibrary = 'out';
 					applyFilters();
@@ -205,7 +197,7 @@
 				Not in Library
 			</button>
 			<button
-				class="btn btn-sm join-item {filterInLibrary === 'in' ? 'btn-active' : ''}"
+				class="btn join-item btn-sm {filterInLibrary === 'in' ? 'btn-active' : ''}"
 				onclick={() => {
 					filterInLibrary = 'in';
 					applyFilters();
@@ -238,7 +230,7 @@
 					{/if}
 				</p>
 				{#if data.pagination.totalItems === 0}
-					<button class="btn btn-primary mt-4" onclick={refreshList} disabled={refreshing}>
+					<button class="btn mt-4 btn-primary" onclick={refreshList} disabled={refreshing}>
 						<RefreshCw class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" />
 						Refresh Now
 					</button>
@@ -246,7 +238,9 @@
 			</div>
 		</div>
 	{:else}
-		<div class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10">
+		<div
+			class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10"
+		>
 			{#each filteredItems as item (item.id)}
 				<div class="group relative {item.isExcluded ? 'opacity-50' : ''}">
 					<div class="aspect-[2/3] overflow-hidden rounded bg-base-300">
@@ -269,7 +263,9 @@
 
 						<!-- Rating badge -->
 						{#if item.voteAverage}
-							<div class="absolute right-0.5 top-0.5 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] text-white">
+							<div
+								class="absolute top-0.5 right-0.5 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] text-white"
+							>
 								<Star class="h-2.5 w-2.5 fill-yellow-400 text-yellow-400" />
 								{parseFloat(item.voteAverage).toFixed(1)}
 							</div>
@@ -277,23 +273,25 @@
 
 						<!-- In library badge -->
 						{#if item.inLibrary}
-							<div class="absolute left-0.5 top-0.5 rounded bg-success p-0.5">
+							<div class="absolute top-0.5 left-0.5 rounded bg-success p-0.5">
 								<Check class="h-3 w-3 text-success-content" />
 							</div>
 						{/if}
 
 						<!-- Excluded badge -->
 						{#if item.isExcluded}
-							<div class="absolute left-0.5 top-0.5 rounded bg-error p-0.5">
+							<div class="absolute top-0.5 left-0.5 rounded bg-error p-0.5">
 								<Ban class="h-3 w-3 text-error-content" />
 							</div>
 						{/if}
 
 						<!-- Hover actions -->
-						<div class="absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+						<div
+							class="absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100"
+						>
 							{#if item.isExcluded}
 								<button
-									class="btn btn-success btn-xs"
+									class="btn btn-xs btn-success"
 									onclick={() => includeItem(item.tmdbId)}
 									disabled={excludingIds.has(item.tmdbId)}
 									title="Include"
@@ -307,7 +305,7 @@
 							{:else}
 								{#if !item.inLibrary}
 									<button
-										class="btn btn-primary btn-xs"
+										class="btn btn-xs btn-primary"
 										onclick={() => addToLibrary(item.tmdbId)}
 										disabled={addingIds.has(item.tmdbId)}
 										title="Add to library"
@@ -320,7 +318,7 @@
 									</button>
 								{/if}
 								<button
-									class="btn btn-error btn-xs"
+									class="btn btn-xs btn-error"
 									onclick={() => excludeItem(item.tmdbId)}
 									disabled={excludingIds.has(item.tmdbId)}
 									title="Exclude"
@@ -352,17 +350,17 @@
 			<div class="mt-6 flex justify-center">
 				<div class="join">
 					<button
-						class="btn btn-sm join-item"
+						class="btn join-item btn-sm"
 						disabled={data.pagination.page <= 1}
 						onclick={() => goToPage(data.pagination.page - 1)}
 					>
 						Previous
 					</button>
-					<button class="btn btn-sm join-item">
+					<button class="btn join-item btn-sm">
 						Page {data.pagination.page} of {data.pagination.totalPages}
 					</button>
 					<button
-						class="btn btn-sm join-item"
+						class="btn join-item btn-sm"
 						disabled={data.pagination.page >= data.pagination.totalPages}
 						onclick={() => goToPage(data.pagination.page + 1)}
 					>

@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { AlertCircle, Check, ChevronLeft, ChevronRight, RefreshCw, Star, Image } from 'lucide-svelte';
+	import {
+		AlertCircle,
+		Check,
+		ChevronLeft,
+		ChevronRight,
+		RefreshCw,
+		Star,
+		Image
+	} from 'lucide-svelte';
 
 	interface PreviewItem {
 		id: number;
@@ -69,7 +77,10 @@
 				Preview
 				{#if !loading && !error}
 					{#if isLimited}
-						<span class="badge badge-ghost">{totalResults.toLocaleString()} of {unfilteredTotal.toLocaleString()} {mediaLabel}</span>
+						<span class="badge badge-ghost"
+							>{totalResults.toLocaleString()} of {unfilteredTotal.toLocaleString()}
+							{mediaLabel}</span
+						>
 						<span class="badge badge-outline badge-sm">limited to {itemLimit}</span>
 					{:else}
 						<span class="badge badge-ghost">{totalResults.toLocaleString()} {mediaLabel}</span>
@@ -94,7 +105,9 @@
 				</div>
 			{:else if loading && items.length === 0}
 				<!-- Loading skeleton -->
-				<div class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7">
+				<div
+					class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7"
+				>
 					{#each Array(12) as _}
 						<div class="animate-pulse">
 							<div class="aspect-[2/3] rounded bg-base-300"></div>
@@ -110,7 +123,9 @@
 					</p>
 				</div>
 			{:else}
-				<div class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7">
+				<div
+					class="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7"
+				>
 					{#each items as item (item.id)}
 						<div class="group relative">
 							<!-- Poster -->
@@ -130,7 +145,9 @@
 
 								<!-- Rating badge -->
 								{#if item.vote_average > 0}
-									<div class="absolute right-0.5 top-0.5 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] text-white">
+									<div
+										class="absolute top-0.5 right-0.5 flex items-center gap-0.5 rounded bg-black/70 px-1 py-0.5 text-[10px] text-white"
+									>
 										<Star class="h-2.5 w-2.5 fill-yellow-400 text-yellow-400" />
 										{item.vote_average.toFixed(1)}
 									</div>
@@ -138,7 +155,10 @@
 
 								<!-- In library overlay -->
 								{#if item.inLibrary}
-									<div class="absolute inset-0 flex items-center justify-center bg-success/40" title="In library">
+									<div
+										class="absolute inset-0 flex items-center justify-center bg-success/40"
+										title="In library"
+									>
 										<div class="rounded-full bg-success p-1.5 shadow-lg">
 											<Check class="h-5 w-5 text-success-content" />
 										</div>

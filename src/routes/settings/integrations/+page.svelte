@@ -124,7 +124,9 @@
 					</div>
 					<div class="flex-1">
 						<h2 class="text-lg font-semibold">TMDB Integration</h2>
-						<p class="text-sm text-base-content/70">The Movie Database API for metadata and Smart Lists</p>
+						<p class="text-sm text-base-content/70">
+							The Movie Database API for metadata and Smart Lists
+						</p>
 					</div>
 					<div class="flex items-center gap-2">
 						{#if data.tmdb.hasApiKey}

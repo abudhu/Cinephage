@@ -496,18 +496,20 @@ export class StrmService {
 	 * Used for streaming "season pack" grabs
 	 *
 	 * Note: Only creates files for episodes that have already aired
+	 * @param options.episodeIds - Optional: Only create files for these specific episode IDs (used to avoid race condition with watcher)
 	 */
 	async createSeasonStrmFiles(options: {
 		seriesId: string;
 		seasonNumber: number;
 		tmdbId: string;
 		baseUrl: string;
+		episodeIds?: string[];
 	}): Promise<{
 		success: boolean;
 		results: Array<{ episodeId: string; episodeNumber: number; filePath?: string; error?: string }>;
 		error?: string;
 	}> {
-		const { seriesId, seasonNumber, tmdbId, baseUrl } = options;
+		const { seriesId, seasonNumber, tmdbId, baseUrl, episodeIds } = options;
 
 		try {
 			// Get all episodes for this season
@@ -517,7 +519,7 @@ export class StrmService {
 
 			// Filter to only include episodes that have already aired
 			const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
-			const seasonEpisodes = allEpisodes.filter((ep) => {
+			let seasonEpisodes = allEpisodes.filter((ep) => {
 				// If no air date, skip the episode (hasn't aired)
 				if (!ep.airDate) {
 					return false;
@@ -525,6 +527,12 @@ export class StrmService {
 				// Only include episodes that aired on or before today
 				return ep.airDate <= today;
 			});
+
+			// If specific episode IDs provided, filter to only those episodes
+			if (episodeIds && episodeIds.length > 0) {
+				const episodeIdSet = new Set(episodeIds);
+				seasonEpisodes = seasonEpisodes.filter((ep) => episodeIdSet.has(ep.id));
+			}
 
 			if (seasonEpisodes.length === 0) {
 				const unairedCount = allEpisodes.length;

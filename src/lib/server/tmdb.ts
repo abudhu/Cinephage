@@ -348,9 +348,9 @@ export const tmdb = {
 		mediaType: 'movie' | 'tv',
 		region = 'US'
 	): Promise<{ results: TmdbWatchProvider[] }> {
-		return this.fetch(
-			`/watch/providers/${mediaType}?watch_region=${region}`
-		) as Promise<{ results: TmdbWatchProvider[] }>;
+		return this.fetch(`/watch/providers/${mediaType}?watch_region=${region}`) as Promise<{
+			results: TmdbWatchProvider[];
+		}>;
 	},
 
 	/**
@@ -364,27 +364,27 @@ export const tmdb = {
 	 * Search keywords
 	 */
 	async searchKeywords(query: string): Promise<{ results: TmdbKeyword[] }> {
-		return this.fetch(
-			`/search/keyword?query=${encodeURIComponent(query)}`
-		) as Promise<{ results: TmdbKeyword[] }>;
+		return this.fetch(`/search/keyword?query=${encodeURIComponent(query)}`) as Promise<{
+			results: TmdbKeyword[];
+		}>;
 	},
 
 	/**
 	 * Search people (actors, directors, etc.)
 	 */
 	async searchPeople(query: string): Promise<{ results: TmdbPersonSearchResult[] }> {
-		return this.fetch(
-			`/search/person?query=${encodeURIComponent(query)}`
-		) as Promise<{ results: TmdbPersonSearchResult[] }>;
+		return this.fetch(`/search/person?query=${encodeURIComponent(query)}`) as Promise<{
+			results: TmdbPersonSearchResult[];
+		}>;
 	},
 
 	/**
 	 * Search companies
 	 */
 	async searchCompanies(query: string): Promise<{ results: TmdbCompanySearchResult[] }> {
-		return this.fetch(
-			`/search/company?query=${encodeURIComponent(query)}`
-		) as Promise<{ results: TmdbCompanySearchResult[] }>;
+		return this.fetch(`/search/company?query=${encodeURIComponent(query)}`) as Promise<{
+			results: TmdbCompanySearchResult[];
+		}>;
 	},
 
 	/**

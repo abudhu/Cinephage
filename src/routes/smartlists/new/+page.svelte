@@ -9,7 +9,4 @@
 	<title>Create Smart List - Cinephage</title>
 </svelte:head>
 
-<SmartListEditor
-	rootFolders={data.rootFolders}
-	scoringProfiles={data.scoringProfiles}
-/>
+<SmartListEditor rootFolders={data.rootFolders} scoringProfiles={data.scoringProfiles} />

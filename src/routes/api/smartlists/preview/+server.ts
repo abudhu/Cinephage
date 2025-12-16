@@ -18,7 +18,10 @@ const optionalNumber = z.preprocess(
 );
 
 const optionalNumberWithRange = (min: number, max: number) =>
-	z.preprocess((v) => (v === '' || v === null ? undefined : v), z.number().min(min).max(max).optional());
+	z.preprocess(
+		(v) => (v === '' || v === null ? undefined : v),
+		z.number().min(min).max(max).optional()
+	);
 
 const previewSchema = z.object({
 	mediaType: z.enum(['movie', 'tv']),
@@ -70,7 +73,10 @@ const previewSchema = z.object({
 		(v) => (v === '' || v === null ? undefined : v),
 		z.number().min(1).max(1000).optional().default(100)
 	),
-	page: z.preprocess((v) => (v === '' || v === null ? undefined : v), z.number().optional().default(1))
+	page: z.preprocess(
+		(v) => (v === '' || v === null ? undefined : v),
+		z.number().optional().default(1)
+	)
 });
 
 function buildDiscoverParams(filters: SmartListFilters, sortBy: string): DiscoverParams {
@@ -80,9 +86,7 @@ function buildDiscoverParams(filters: SmartListFilters, sortBy: string): Discove
 
 	if (filters.withGenres?.length) {
 		params.with_genres =
-			filters.genreMode === 'and'
-				? filters.withGenres.join(',')
-				: filters.withGenres.join('|');
+			filters.genreMode === 'and' ? filters.withGenres.join(',') : filters.withGenres.join('|');
 	}
 	if (filters.withoutGenres?.length) {
 		params.without_genres = filters.withoutGenres.join(',');
@@ -199,20 +203,14 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		if (tmdbIds.length > 0) {
 			if (data.mediaType === 'movie') {
-				const libraryMovies = db
-					.select({ tmdbId: movies.tmdbId })
-					.from(movies)
-					.all();
+				const libraryMovies = db.select({ tmdbId: movies.tmdbId }).from(movies).all();
 				for (const movie of libraryMovies) {
 					if (tmdbIds.includes(movie.tmdbId)) {
 						libraryTmdbIds.add(movie.tmdbId);
 					}
 				}
 			} else {
-				const librarySeries = db
-					.select({ tmdbId: series.tmdbId })
-					.from(series)
-					.all();
+				const librarySeries = db.select({ tmdbId: series.tmdbId }).from(series).all();
 				for (const show of librarySeries) {
 					if (tmdbIds.includes(show.tmdbId)) {
 						libraryTmdbIds.add(show.tmdbId);

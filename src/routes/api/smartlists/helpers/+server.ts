@@ -23,8 +23,7 @@ export const GET: RequestHandler = async ({ url }) => {
 				if (!type) {
 					return json({ error: 'Missing type parameter for genres' }, { status: 400 });
 				}
-				const result =
-					type === 'movie' ? await tmdb.getMovieGenres() : await tmdb.getTvGenres();
+				const result = type === 'movie' ? await tmdb.getMovieGenres() : await tmdb.getTvGenres();
 				return json(result.genres);
 			}
 
