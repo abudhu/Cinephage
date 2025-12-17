@@ -58,13 +58,13 @@ git clone https://github.com/MoldyTaint/cinephage.git
 cd cinephage
 ```
 
-Edit `docker-compose.yml` to set your media paths:
+Edit `docker-compose.yaml` to set your media paths:
 
 ```yaml
 volumes:
   - ./data:/app/data
-  - /your/movies:/movies
-  - /your/tv:/tv
+  - ./logs:/app/logs
+  - /your/media:/media
 ```
 
 Then start it:
