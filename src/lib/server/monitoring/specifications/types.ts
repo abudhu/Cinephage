@@ -88,6 +88,9 @@ export enum RejectionReason {
 	ALREADY_HAS_FILE = 'already_has_file',
 	NOT_YET_AIRED = 'not_yet_aired',
 
+	// Storage
+	READ_ONLY_FOLDER = 'read_only_folder',
+
 	// Other
 	NO_PROFILE = 'no_profile',
 	UNKNOWN = 'unknown'

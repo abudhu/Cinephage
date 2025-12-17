@@ -45,7 +45,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			name: validated.name,
 			path: validated.path,
 			mediaType: validated.mediaType,
-			isDefault: validated.isDefault
+			isDefault: validated.isDefault,
+			readOnly: validated.readOnly
 		});
 
 		return json({ success: true, folder: created });

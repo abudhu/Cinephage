@@ -4,7 +4,8 @@ import { getRootFolderService } from '$lib/server/downloadClients';
 import { z } from 'zod';
 
 const validatePathSchema = z.object({
-	path: z.string().min(1, 'Path is required')
+	path: z.string().min(1, 'Path is required'),
+	readOnly: z.boolean().optional().default(false)
 });
 
 /**
@@ -31,11 +32,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 
-	const { path } = result.data;
+	const { path, readOnly } = result.data;
 	const service = getRootFolderService();
 
 	try {
-		const validation = await service.validatePath(path);
+		const validation = await service.validatePath(path, readOnly);
 		return json(validation);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';

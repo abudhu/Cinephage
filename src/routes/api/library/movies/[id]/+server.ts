@@ -215,7 +215,8 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 			.select({
 				id: movies.id,
 				path: movies.path,
-				rootFolderPath: rootFolders.path
+				rootFolderPath: rootFolders.path,
+				rootFolderReadOnly: rootFolders.readOnly
 			})
 			.from(movies)
 			.leftJoin(rootFolders, eq(movies.rootFolderId, rootFolders.id))
@@ -223,6 +224,14 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 
 		if (!movie) {
 			return json({ success: false, error: 'Movie not found' }, { status: 404 });
+		}
+
+		// Block file deletion from read-only folders
+		if (deleteFiles && movie.rootFolderReadOnly) {
+			return json(
+				{ success: false, error: 'Cannot delete files from read-only folder' },
+				{ status: 400 }
+			);
 		}
 
 		if (deleteFiles && movie.rootFolderPath && movie.path) {

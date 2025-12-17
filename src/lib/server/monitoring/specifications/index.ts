@@ -14,3 +14,4 @@ export * from './AvailabilitySpecification.js';
 export * from './SearchCooldownSpecification.js';
 export * from './BlocklistSpecification.js';
 export * from './DelaySpecification.js';
+export * from './ReadOnlyFolderSpecification.js';

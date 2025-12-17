@@ -25,6 +25,7 @@ export interface RootFolderInput {
 	path: string;
 	mediaType: RootFolderMediaType;
 	isDefault?: boolean;
+	readOnly?: boolean;
 }
 
 /**
@@ -90,8 +91,8 @@ export class RootFolderService {
 	 * Create a new root folder.
 	 */
 	async createFolder(input: RootFolderInput): Promise<RootFolder> {
-		// Validate path exists
-		const validation = await this.validatePath(input.path);
+		// Validate path exists (use read-only mode if specified)
+		const validation = await this.validatePath(input.path, input.readOnly ?? false);
 		if (!validation.valid) {
 			throw new Error(validation.error || 'Invalid path');
 		}
@@ -113,12 +114,18 @@ export class RootFolderService {
 			path: input.path,
 			mediaType: input.mediaType,
 			isDefault: input.isDefault ?? false,
-			freeSpaceBytes: validation.freeSpaceBytes,
+			readOnly: input.readOnly ?? false,
+			freeSpaceBytes: input.readOnly ? null : validation.freeSpaceBytes,
 			lastCheckedAt: now,
 			createdAt: now
 		});
 
-		logger.info('Root folder created', { id, name: input.name, path: input.path });
+		logger.info('Root folder created', {
+			id,
+			name: input.name,
+			path: input.path,
+			readOnly: input.readOnly ?? false
+		});
 
 		const created = await this.getFolder(id);
 		if (!created) {
@@ -137,9 +144,12 @@ export class RootFolderService {
 			throw new Error(`Root folder not found: ${id}`);
 		}
 
-		// If path is being updated, validate it
+		// Determine read-only mode (use new value if provided, else existing)
+		const readOnly = updates.readOnly ?? existing.readOnly;
+
+		// If path is being updated, validate it (use read-only mode if applicable)
 		if (updates.path && updates.path !== existing.path) {
-			const validation = await this.validatePath(updates.path);
+			const validation = await this.validatePath(updates.path, readOnly);
 			if (!validation.valid) {
 				throw new Error(validation.error || 'Invalid path');
 			}
@@ -159,6 +169,7 @@ export class RootFolderService {
 		if (updates.path !== undefined) updateData.path = updates.path;
 		if (updates.mediaType !== undefined) updateData.mediaType = updates.mediaType;
 		if (updates.isDefault !== undefined) updateData.isDefault = updates.isDefault;
+		if (updates.readOnly !== undefined) updateData.readOnly = updates.readOnly;
 
 		await db.update(rootFoldersTable).set(updateData).where(eq(rootFoldersTable.id, id));
 
@@ -182,8 +193,10 @@ export class RootFolderService {
 
 	/**
 	 * Validate a path exists and is accessible.
+	 * @param folderPath - The path to validate
+	 * @param readOnly - If true, only check read access (skip write check)
 	 */
-	async validatePath(folderPath: string): Promise<PathValidationResult> {
+	async validatePath(folderPath: string, readOnly = false): Promise<PathValidationResult> {
 		try {
 			// Normalize path
 			const normalizedPath = path.resolve(folderPath);
@@ -209,6 +222,26 @@ export class RootFolderService {
 					writable: false,
 					error: 'Path is not a directory'
 				};
+			}
+
+			// For read-only folders (like NZBDav mounts), only check read access
+			if (readOnly) {
+				try {
+					await fs.access(normalizedPath, fs.constants.R_OK);
+					return {
+						valid: true,
+						exists: true,
+						writable: false // Read-only folders are not writable
+						// No free space for read-only folders (N/A)
+					};
+				} catch {
+					return {
+						valid: false,
+						exists: true,
+						writable: false,
+						error: 'Path is not readable'
+					};
+				}
 			}
 
 			// Check if writable by actually attempting to write a test file
@@ -332,25 +365,34 @@ export class RootFolderService {
 	private async rowToFolder(row: typeof rootFoldersTable.$inferSelect): Promise<RootFolder> {
 		// Check current accessibility
 		let accessible = false;
-		let freeSpaceBytes = row.freeSpaceBytes;
+		let freeSpaceBytes: number | null = null;
 		let freeSpaceFormatted: string | undefined;
+		const isReadOnly = !!row.readOnly;
 
 		try {
 			// Check read access first
 			await fs.access(row.path, fs.constants.R_OK);
-			// Then test actual write capability
-			accessible = await this.testWriteAccess(row.path);
 
-			// Update free space if it's stale (older than 5 minutes)
-			const lastChecked = row.lastCheckedAt ? new Date(row.lastCheckedAt) : null;
-			const isStale = !lastChecked || Date.now() - lastChecked.getTime() > 5 * 60 * 1000;
+			if (isReadOnly) {
+				// For read-only folders, only check read access (no write test, no free space)
+				accessible = true;
+			} else {
+				// For normal folders, test actual write capability
+				accessible = await this.testWriteAccess(row.path);
 
-			if (isStale || freeSpaceBytes === null) {
-				freeSpaceBytes = await this.getFreeSpace(row.path);
-			}
+				// Update free space if it's stale (older than 5 minutes)
+				const lastChecked = row.lastCheckedAt ? new Date(row.lastCheckedAt) : null;
+				const isStale = !lastChecked || Date.now() - lastChecked.getTime() > 5 * 60 * 1000;
 
-			if (freeSpaceBytes) {
-				freeSpaceFormatted = this.formatBytes(freeSpaceBytes);
+				if (isStale || row.freeSpaceBytes === null) {
+					freeSpaceBytes = await this.getFreeSpace(row.path);
+				} else {
+					freeSpaceBytes = row.freeSpaceBytes;
+				}
+
+				if (freeSpaceBytes) {
+					freeSpaceFormatted = this.formatBytes(freeSpaceBytes);
+				}
 			}
 		} catch {
 			accessible = false;
@@ -362,12 +404,46 @@ export class RootFolderService {
 			path: row.path,
 			mediaType: row.mediaType as RootFolderMediaType,
 			isDefault: !!row.isDefault,
+			readOnly: isReadOnly,
 			freeSpaceBytes,
 			freeSpaceFormatted,
 			accessible,
 			lastCheckedAt: row.lastCheckedAt ?? undefined,
 			createdAt: row.createdAt ?? undefined
 		};
+	}
+
+	/**
+	 * Check if a root folder is read-only.
+	 * Uses a simple cache to avoid repeated DB queries within the same request cycle.
+	 */
+	private readOnlyCache = new Map<string, boolean>();
+
+	async isReadOnlyFolder(rootFolderId: string | null | undefined): Promise<boolean> {
+		if (!rootFolderId) return false;
+
+		// Check cache first
+		const cached = this.readOnlyCache.get(rootFolderId);
+		if (cached !== undefined) return cached;
+
+		// Query database
+		const [folder] = await db
+			.select({ readOnly: rootFoldersTable.readOnly })
+			.from(rootFoldersTable)
+			.where(eq(rootFoldersTable.id, rootFolderId))
+			.limit(1);
+
+		const isReadOnly = folder?.readOnly ?? false;
+		this.readOnlyCache.set(rootFolderId, isReadOnly);
+		return isReadOnly;
+	}
+
+	/**
+	 * Clear the read-only cache.
+	 * Call this when root folder settings change.
+	 */
+	clearReadOnlyCache(): void {
+		this.readOnlyCache.clear();
 	}
 }
 

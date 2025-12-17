@@ -53,6 +53,8 @@ import {
 	MovieSearchCooldownSpecification,
 	EpisodeSearchCooldownSpecification,
 	ReleaseBlocklistSpecification,
+	MovieReadOnlyFolderSpecification,
+	EpisodeReadOnlyFolderSpecification,
 	type MovieContext,
 	type EpisodeContext,
 	type ReleaseCandidate
@@ -267,6 +269,7 @@ export class MonitoringSearchService {
 			// Filter through specifications
 			const missingSpec = new MovieMissingContentSpecification();
 			const monitoredSpec = new MovieMonitoredSpecification();
+			const readOnlySpec = new MovieReadOnlyFolderSpecification();
 			const availabilitySpec = new MovieAvailabilitySpecification();
 			const cooldownSpec = new MovieSearchCooldownSpecification();
 
@@ -288,6 +291,22 @@ export class MonitoringSearchService {
 						grabbed: false,
 						skipped: true,
 						skipReason: monitoredResult.reason
+					});
+					continue;
+				}
+
+				// Skip movies in read-only folders (imports would fail anyway)
+				const readOnlyResult = await readOnlySpec.isSatisfied(context);
+				if (!readOnlyResult.accepted) {
+					results.push({
+						itemId: movie.id,
+						itemType: 'movie',
+						title: movie.title,
+						searched: false,
+						releasesFound: 0,
+						grabbed: false,
+						skipped: true,
+						skipReason: readOnlyResult.reason
 					});
 					continue;
 				}
@@ -403,6 +422,7 @@ export class MonitoringSearchService {
 			// Filter through specifications first
 			const missingSpec = new EpisodeMissingContentSpecification();
 			const monitoredSpec = new EpisodeMonitoredSpecification();
+			const readOnlySpec = new EpisodeReadOnlyFolderSpecification();
 			const cooldownSpec = new EpisodeSearchCooldownSpecification();
 
 			// Filter and group episodes by series and season
@@ -430,6 +450,22 @@ export class MonitoringSearchService {
 						grabbed: false,
 						skipped: true,
 						skipReason: monitoredResult.reason
+					});
+					continue;
+				}
+
+				// Skip episodes in read-only folders (imports would fail anyway)
+				const readOnlyResult = await readOnlySpec.isSatisfied(context);
+				if (!readOnlyResult.accepted) {
+					results.push({
+						itemId: episode.id,
+						itemType: 'episode',
+						title: `${episode.series.title} S${episode.seasonNumber.toString().padStart(2, '0')}E${episode.episodeNumber.toString().padStart(2, '0')}`,
+						searched: false,
+						releasesFound: 0,
+						grabbed: false,
+						skipped: true,
+						skipReason: readOnlyResult.reason
 					});
 					continue;
 				}
@@ -888,6 +924,7 @@ export class MonitoringSearchService {
 			// Get existing files
 			const cutoffSpec = new MovieCutoffUnmetSpecification();
 			const monitoredSpec = new MovieMonitoredSpecification();
+			const readOnlySpec = new MovieReadOnlyFolderSpecification();
 			const cooldownSpec = new MovieSearchCooldownSpecification();
 
 			for (const movie of moviesWithFiles) {
@@ -917,6 +954,22 @@ export class MonitoringSearchService {
 						grabbed: false,
 						skipped: true,
 						skipReason: monitoredResult.reason
+					});
+					continue;
+				}
+
+				// Skip movies in read-only folders (imports would fail anyway)
+				const readOnlyResult = await readOnlySpec.isSatisfied(context);
+				if (!readOnlyResult.accepted) {
+					results.push({
+						itemId: movie.id,
+						itemType: 'movie',
+						title: movie.title,
+						searched: false,
+						releasesFound: 0,
+						grabbed: false,
+						skipped: true,
+						skipReason: readOnlyResult.reason
 					});
 					continue;
 				}
@@ -1021,6 +1074,7 @@ export class MonitoringSearchService {
 
 			const cutoffSpec = new EpisodeCutoffUnmetSpecification();
 			const monitoredSpec = new EpisodeMonitoredSpecification();
+			const readOnlySpec = new EpisodeReadOnlyFolderSpecification();
 			const cooldownSpec = new EpisodeSearchCooldownSpecification();
 
 			for (const episode of episodesWithFiles) {
@@ -1045,6 +1099,12 @@ export class MonitoringSearchService {
 				const monitoredResult = await monitoredSpec.isSatisfied(context);
 				if (!monitoredResult.accepted) {
 					continue; // Skip silently
+				}
+
+				// Skip episodes in read-only folders (imports would fail anyway)
+				const readOnlyResult = await readOnlySpec.isSatisfied(context);
+				if (!readOnlyResult.accepted) {
+					continue; // Skip silently - can't upgrade in read-only folder
 				}
 
 				// Check search cooldown (prevent hammering indexers)
@@ -1459,6 +1519,7 @@ export class MonitoringSearchService {
 			// Filter through specifications
 			const newEpisodeSpec = new NewEpisodeSpecification({ intervalHours });
 			const monitoredSpec = new EpisodeMonitoredSpecification();
+			const readOnlySpec = new EpisodeReadOnlyFolderSpecification();
 
 			for (const episode of recentEpisodes) {
 				if (!episode.series) continue;
@@ -1481,6 +1542,22 @@ export class MonitoringSearchService {
 						grabbed: false,
 						skipped: true,
 						skipReason: monitoredResult.reason
+					});
+					continue;
+				}
+
+				// Skip episodes in read-only folders (imports would fail anyway)
+				const readOnlyResult = await readOnlySpec.isSatisfied(context);
+				if (!readOnlyResult.accepted) {
+					results.push({
+						itemId: episode.id,
+						itemType: 'episode',
+						title: `${episode.series.title} S${episode.seasonNumber.toString().padStart(2, '0')}E${episode.episodeNumber.toString().padStart(2, '0')}`,
+						searched: false,
+						releasesFound: 0,
+						grabbed: false,
+						skipped: true,
+						skipReason: readOnlyResult.reason
 					});
 					continue;
 				}

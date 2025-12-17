@@ -491,6 +491,8 @@ export const rootFolders = sqliteTable('root_folders', {
 	mediaType: text('media_type').notNull(), // 'movie' | 'tv'
 	// Whether this is the default for its media type
 	isDefault: integer('is_default', { mode: 'boolean' }).default(false),
+	// Read-only folder (for virtual mounts like NZBDav - catalog only, no imports)
+	readOnly: integer('read_only', { mode: 'boolean' }).default(false),
 	// Cached free space in bytes (updated periodically)
 	freeSpaceBytes: integer('free_space_bytes'),
 	// Last time free space was checked

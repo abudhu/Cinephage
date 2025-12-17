@@ -16,7 +16,7 @@
 		onClose: () => void;
 		onSave: (data: RootFolderFormData) => void;
 		onDelete?: () => void;
-		onValidatePath: (path: string) => Promise<PathValidationResult>;
+		onValidatePath: (path: string, readOnly?: boolean) => Promise<PathValidationResult>;
 	}
 
 	let {
@@ -36,6 +36,7 @@
 	let path = $state('');
 	let mediaType = $state<'movie' | 'tv'>('movie');
 	let isDefault = $state(false);
+	let readOnly = $state(false);
 
 	// UI state
 	let validating = $state(false);
@@ -52,6 +53,7 @@
 			path = folder?.path ?? '';
 			mediaType = folder?.mediaType ?? 'movie';
 			isDefault = folder?.isDefault ?? false;
+			readOnly = folder?.readOnly ?? false;
 			validationResult = null;
 			showFolderBrowser = false;
 		}
@@ -62,7 +64,8 @@
 			name,
 			path,
 			mediaType,
-			isDefault
+			isDefault,
+			readOnly
 		};
 	}
 
@@ -72,7 +75,7 @@
 		validating = true;
 		validationResult = null;
 		try {
-			validationResult = await onValidatePath(path);
+			validationResult = await onValidatePath(path, readOnly);
 		} finally {
 			validating = false;
 		}
@@ -201,6 +204,38 @@
 						</label>
 					</div>
 
+					<div class="form-control">
+						<label class="label cursor-pointer justify-start gap-3">
+							<input type="checkbox" class="checkbox checkbox-sm" bind:checked={readOnly} />
+							<span class="label-text">Read-only folder (catalog only, no imports)</span>
+						</label>
+					</div>
+
+					{#if readOnly}
+						<div class="alert alert-info">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								class="h-6 w-6 shrink-0 stroke-current"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+								></path>
+							</svg>
+							<div>
+								<div class="font-medium">Read-only mode enabled</div>
+								<div class="text-sm opacity-80">
+									This folder will be used for cataloging existing content only. Imports and new
+									media will not be written to this folder. Useful for virtual mounts like NZBDav.
+								</div>
+							</div>
+						</div>
+					{/if}
+
 					<!-- Save Error -->
 					{#if error}
 						<div class="alert alert-error">
@@ -218,11 +253,15 @@
 							{#if validationResult.valid}
 								<CheckCircle2 class="h-5 w-5" />
 								<div>
-									<div class="font-medium">Path is valid</div>
+									<div class="font-medium">
+										{readOnly ? 'Path is readable' : 'Path is valid'}
+									</div>
 									{#if validationResult.freeSpaceFormatted}
 										<div class="text-sm opacity-80">
 											Free space: {validationResult.freeSpaceFormatted}
 										</div>
+									{:else if readOnly}
+										<div class="text-sm opacity-80">Free space: N/A (read-only)</div>
 									{/if}
 								</div>
 							{:else}

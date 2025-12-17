@@ -411,6 +411,24 @@ export class RenamePreviewService {
 		item: RenamePreviewItem
 	): Promise<RenameExecuteResult['results'][0]> {
 		try {
+			// Check if the file is in a read-only folder
+			const isReadOnly = await this.isFileInReadOnlyFolder(item);
+			if (isReadOnly) {
+				logger.warn('[RenamePreviewService] Cannot rename file in read-only folder', {
+					fileId: item.fileId,
+					mediaType: item.mediaType,
+					path: item.currentFullPath
+				});
+				return {
+					fileId: item.fileId,
+					mediaType: item.mediaType,
+					success: false,
+					oldPath: item.currentFullPath,
+					newPath: item.newFullPath,
+					error: 'Cannot rename files in read-only folder'
+				};
+			}
+
 			// Verify source file exists
 			const sourceExists = await fileExists(item.currentFullPath);
 			if (!sourceExists) {
@@ -730,6 +748,46 @@ export class RenamePreviewService {
 				error: error instanceof Error ? error.message : 'Failed to generate filename'
 			};
 		}
+	}
+
+	/**
+	 * Check if a file is in a read-only root folder
+	 */
+	private async isFileInReadOnlyFolder(item: RenamePreviewItem): Promise<boolean> {
+		if (item.mediaType === 'movie') {
+			// Get movie's root folder
+			const movie = db
+				.select({ rootFolderId: movies.rootFolderId })
+				.from(movies)
+				.where(eq(movies.id, item.mediaId))
+				.get();
+
+			if (movie?.rootFolderId) {
+				const folder = db
+					.select({ readOnly: rootFolders.readOnly })
+					.from(rootFolders)
+					.where(eq(rootFolders.id, movie.rootFolderId))
+					.get();
+				return folder?.readOnly ?? false;
+			}
+		} else {
+			// Get series' root folder (mediaId is seriesId for episodes)
+			const show = db
+				.select({ rootFolderId: series.rootFolderId })
+				.from(series)
+				.where(eq(series.id, item.mediaId))
+				.get();
+
+			if (show?.rootFolderId) {
+				const folder = db
+					.select({ readOnly: rootFolders.readOnly })
+					.from(rootFolders)
+					.where(eq(rootFolders.id, show.rootFolderId))
+					.get();
+				return folder?.readOnly ?? false;
+			}
+		}
+		return false;
 	}
 
 	/**

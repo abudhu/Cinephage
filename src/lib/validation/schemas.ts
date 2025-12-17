@@ -430,7 +430,8 @@ export const rootFolderCreateSchema = z.object({
 	name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or less'),
 	path: z.string().min(1, 'Path is required'),
 	mediaType: rootFolderMediaTypeSchema,
-	isDefault: z.boolean().default(false)
+	isDefault: z.boolean().default(false),
+	readOnly: z.boolean().default(false)
 });
 
 /**

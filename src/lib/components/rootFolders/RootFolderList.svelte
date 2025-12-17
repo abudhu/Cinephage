@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Folder, Settings, Trash2, Film, Tv, AlertCircle, Star } from 'lucide-svelte';
+	import { Folder, Settings, Trash2, Film, Tv, AlertCircle, Star, Eye } from 'lucide-svelte';
 	import type { RootFolder } from '$lib/types/downloadClient';
 
 	interface Props {
@@ -41,6 +41,15 @@
 									{#if folder.isDefault}
 										<Star class="h-4 w-4 fill-warning text-warning" />
 									{/if}
+									{#if folder.readOnly}
+										<span
+											class="badge badge-outline badge-sm gap-1"
+											title="Read-only folder (catalog only)"
+										>
+											<Eye class="h-3 w-3" />
+											Read-only
+										</span>
+									{/if}
 								</h3>
 								<p class="font-mono text-sm text-base-content/60">{folder.path}</p>
 							</div>
@@ -70,10 +79,16 @@
 								<AlertCircle class="h-4 w-4" />
 								<span>Path not accessible</span>
 							</div>
-						{:else if folder.freeSpaceFormatted}
+						{:else}
 							<div class="flex items-center justify-between text-sm">
 								<span class="text-base-content/60">Free Space</span>
-								<span class="font-medium">{folder.freeSpaceFormatted}</span>
+								{#if folder.readOnly}
+									<span class="text-base-content/60">N/A</span>
+								{:else if folder.freeSpaceFormatted}
+									<span class="font-medium">{folder.freeSpaceFormatted}</span>
+								{:else}
+									<span class="text-base-content/60">Unknown</span>
+								{/if}
 							</div>
 						{/if}
 					</div>

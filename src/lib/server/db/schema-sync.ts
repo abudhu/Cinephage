@@ -17,8 +17,9 @@ import { logger } from '$lib/logging';
  * Current schema version - increment when adding schema changes
  * Version 1: Initial complete schema
  * Version 2: Added profile_size_limits, custom_formats, naming_presets tables
+ * Version 3: Added read_only column to root_folders for virtual mount support (NZBDav)
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /**
  * All table definitions with CREATE TABLE IF NOT EXISTS
@@ -163,6 +164,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"path" text NOT NULL UNIQUE,
 		"media_type" text NOT NULL,
 		"is_default" integer DEFAULT false,
+		"read_only" integer DEFAULT false,
 		"free_space_bytes" integer,
 		"last_checked_at" text,
 		"created_at" text
@@ -776,6 +778,14 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 		)`
 			)
 			.run();
+	},
+
+	// Version 3: Add read_only column to root_folders for virtual mount support (NZBDav)
+	3: (sqlite) => {
+		// Only add column if it doesn't exist (may already exist from fresh TABLE_DEFINITIONS)
+		if (!columnExists(sqlite, 'root_folders', 'read_only')) {
+			sqlite.prepare(`ALTER TABLE root_folders ADD COLUMN read_only INTEGER DEFAULT 0`).run();
+		}
 	}
 };
 
@@ -811,6 +821,14 @@ function tableExists(sqlite: Database.Database, tableName: string): boolean {
 		.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
 		.get(tableName);
 	return !!result;
+}
+
+/**
+ * Check if a column exists in a table
+ */
+function columnExists(sqlite: Database.Database, tableName: string, columnName: string): boolean {
+	const result = sqlite.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
+	return result.some((col) => col.name === columnName);
 }
 
 /**

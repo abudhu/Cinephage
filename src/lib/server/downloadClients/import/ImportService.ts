@@ -308,6 +308,14 @@ export class ImportService extends EventEmitter {
 			return result;
 		}
 
+		// Check if root folder is read-only
+		if (rootFolder.readOnly) {
+			result.error = 'Cannot import to read-only root folder';
+			await downloadMonitor.markFailed(queueItem.id, result.error);
+			worker.log('error', 'Root folder is read-only, cannot import files');
+			return result;
+		}
+
 		// Get download path
 		const downloadPath = queueItem.outputPath || queueItem.clientDownloadPath;
 		if (!downloadPath) {
@@ -538,6 +546,14 @@ export class ImportService extends EventEmitter {
 		if (!rootFolder) {
 			result.error = 'Root folder not found';
 			await downloadMonitor.markFailed(queueItem.id, result.error);
+			return result;
+		}
+
+		// Check if root folder is read-only
+		if (rootFolder.readOnly) {
+			result.error = 'Cannot import to read-only root folder';
+			await downloadMonitor.markFailed(queueItem.id, result.error);
+			worker.log('error', 'Root folder is read-only, cannot import files');
 			return result;
 		}
 

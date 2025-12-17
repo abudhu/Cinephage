@@ -75,6 +75,11 @@ export class SubtitleDownloadService {
 					.limit(1)
 			: null;
 
+		// Check if root folder is read-only
+		if (rootFolder?.[0]?.readOnly) {
+			throw new Error('Cannot download subtitles to read-only folder');
+		}
+
 		const rootPath = rootFolder?.[0]?.path || '';
 		const mediaPath = join(rootPath, movie[0].path);
 
@@ -129,6 +134,11 @@ export class SubtitleDownloadService {
 					.where(eq(rootFolders.id, seriesData[0].rootFolderId))
 					.limit(1)
 			: null;
+
+		// Check if root folder is read-only
+		if (rootFolder?.[0]?.readOnly) {
+			throw new Error('Cannot download subtitles to read-only folder');
+		}
 
 		const rootPath = rootFolder?.[0]?.path || '';
 		const mediaPath = join(rootPath, seriesData[0].path, dirname(file.relativePath));
