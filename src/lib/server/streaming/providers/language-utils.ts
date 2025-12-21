@@ -81,3 +81,36 @@ export function prioritizeServersByLanguage<T extends { language: string }>(
 		return priorityA - priorityB;
 	});
 }
+
+/**
+ * Separate streams into matching (preferred language) and fallback (other languages).
+ * Matching streams should be tried first; fallback only if all matching fail.
+ * Streams without language metadata are treated as fallback.
+ */
+export function filterStreamsByLanguage<T extends { language?: string }>(
+	streams: T[],
+	preferredLanguages: string[]
+): { matching: T[]; fallback: T[] } {
+	if (!preferredLanguages.length) {
+		// No preference = all streams treated equally (put in matching)
+		return { matching: streams, fallback: [] };
+	}
+
+	const matching: T[] = [];
+	const fallback: T[] = [];
+
+	for (const stream of streams) {
+		// Check if stream language matches any preferred language
+		const hasMatch =
+			stream.language &&
+			preferredLanguages.some((pref) => languageMatches(stream.language, pref));
+
+		if (hasMatch) {
+			matching.push(stream);
+		} else {
+			fallback.push(stream);
+		}
+	}
+
+	return { matching, fallback };
+}

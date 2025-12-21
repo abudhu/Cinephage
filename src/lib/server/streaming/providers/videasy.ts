@@ -23,10 +23,10 @@ const streamLog = { logCategory: 'streams' as const };
 const VIDEASY_API_HOSTS = ['api.videasy.net', 'api2.videasy.net'];
 
 const VIDEASY_SERVERS: ServerConfig[] = [
-	// Original language servers
-	{ id: 'myflixerzupcloud', name: 'Neon', language: 'en' },
+	// Original language servers (Sage first - Neon has issues with some content)
 	{ id: '1movies', name: 'Sage', language: 'en' },
 	{ id: 'moviebox', name: 'Cypher', language: 'en' },
+	{ id: 'myflixerzupcloud', name: 'Neon', language: 'en' },
 	{ id: 'cdn', name: 'Yoru', language: 'en', movieOnly: true },
 	{ id: 'primewire', name: 'Reyna', language: 'en' },
 	{ id: 'onionplay', name: 'Omen', language: 'en' },
@@ -117,7 +117,16 @@ export class VideasyProvider extends BaseProvider {
 
 		const extractionPromises = topServers.map(async (server) => {
 			try {
-				return await this.extractFromServer(server, params, title, year);
+				const result = await this.extractFromServer(server, params, title, year);
+				if (result) {
+					logger.debug('Server extraction succeeded', {
+						server: server.id,
+						serverName: server.name,
+						language: server.language,
+						...streamLog
+					});
+				}
+				return result;
 			} catch (error) {
 				logger.debug('Server extraction failed', {
 					server: server.id,
@@ -135,6 +144,10 @@ export class VideasyProvider extends BaseProvider {
 
 		// If we got results, return them (already sorted by language priority)
 		if (results.length > 0) {
+			logger.debug('Videasy returning streams', {
+				order: results.map((r) => r.server),
+				...streamLog
+			});
 			return results;
 		}
 

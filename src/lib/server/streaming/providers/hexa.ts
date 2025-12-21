@@ -111,6 +111,7 @@ export class HexaProvider extends BaseProvider {
 			this.createStreamResult(streamUrl, {
 				quality: 'Auto',
 				title: 'Hexa Stream',
+				language: 'en', // Hexa sources English-language content
 				subtitles,
 				referer: '' // Hexa CDN rejects requests with referer headers
 			})

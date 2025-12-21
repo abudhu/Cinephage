@@ -10,6 +10,10 @@ import type { RequestHandler } from './$types';
 import { fetchAndRewritePlaylist } from '$lib/server/streaming/utils';
 import { StreamWorker, streamWorkerRegistry, workerManager } from '$lib/server/workers';
 import { getPreferredLanguagesForMovie } from '$lib/server/streaming/language-profile-helper';
+import { filterStreamsByLanguage } from '$lib/server/streaming/providers/language-utils';
+import { logger } from '$lib/logging';
+
+const streamLog = { logCategory: 'streams' as const };
 
 /** Create JSON error response */
 function errorResponse(message: string, code: string, status: number): Response {
@@ -129,21 +133,38 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			);
 		}
 
-		// Try each source until one works (HLS fetch succeeds)
-		const errors: string[] = [];
-		for (const source of result.sources) {
-			try {
-				// Get the best quality stream URL by parsing the HLS master playlist
-				const bestResult = await getBestQualityStreamUrl(source.url, source.referer);
+		// Separate streams by language preference: try matching first, fallback second
+		const { matching, fallback } = filterStreamsByLanguage(result.sources, preferredLanguages);
 
-				// Try to fetch the playlist - this validates the URL actually works
+		logger.debug('Stream sources by language', {
+			tmdbId: tmdbIdNum,
+			preferredLanguages,
+			matchingCount: matching.length,
+			fallbackCount: fallback.length,
+			...streamLog
+		});
+
+		const errors: string[] = [];
+
+		// Try ALL matching language streams first
+		for (const source of matching) {
+			try {
+				const bestResult = await getBestQualityStreamUrl(source.url, source.referer);
 				const response = await fetchAndRewritePlaylist(
 					bestResult.rawUrl,
 					source.referer,
 					baseUrl
 				);
 
-				// Success - cache and return
+				// Success with preferred language
+				logger.info('Using stream source', {
+					provider: source.provider,
+					server: source.server,
+					language: source.language,
+					quality: source.quality,
+					title: source.title,
+					...streamLog
+				});
 				worker?.extractionSucceeded(source.provider || 'unknown', source.quality);
 				streamCache.set(
 					cacheKey,
@@ -153,7 +174,46 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			} catch (error) {
 				const msg = error instanceof Error ? error.message : String(error);
 				errors.push(`${source.provider}: ${msg}`);
-				// Continue to next source
+			}
+		}
+
+		// Only try fallback streams if ALL matching streams failed
+		if (fallback.length > 0) {
+			logger.warn('No matching language streams worked, trying fallback', {
+				tmdbId: tmdbIdNum,
+				preferredLanguages,
+				triedMatching: matching.length,
+				remainingFallback: fallback.length,
+				...streamLog
+			});
+
+			for (const source of fallback) {
+				try {
+					const bestResult = await getBestQualityStreamUrl(source.url, source.referer);
+					const response = await fetchAndRewritePlaylist(
+						bestResult.rawUrl,
+						source.referer,
+						baseUrl
+					);
+
+					// Success with fallback language
+					logger.info('Using fallback language stream', {
+						tmdbId: tmdbIdNum,
+						language: source.language || 'unknown',
+						preferredLanguages,
+						provider: source.provider,
+						...streamLog
+					});
+					worker?.extractionSucceeded(source.provider || 'unknown', source.quality);
+					streamCache.set(
+						cacheKey,
+						JSON.stringify({ rawUrl: bestResult.rawUrl, referer: source.referer })
+					);
+					return response;
+				} catch (error) {
+					const msg = error instanceof Error ? error.message : String(error);
+					errors.push(`${source.provider}: ${msg}`);
+				}
 			}
 		}
 

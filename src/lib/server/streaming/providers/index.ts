@@ -58,8 +58,8 @@ const PARALLEL_PROVIDER_COUNT = 3;
 
 /** Default provider priority order */
 const DEFAULT_PROVIDER_ORDER: StreamingProviderId[] = [
-	'videasy',
 	'vidlink',
+	'videasy',
 	'xprime',
 	'smashy',
 	'hexa',
@@ -329,7 +329,7 @@ function recordFailure(providerId: StreamingProviderId, durationMs?: number): vo
 /**
  * Convert StreamResult to StreamSource (backward compatibility)
  */
-function toStreamSource(result: StreamResult, _providerId: StreamingProviderId): StreamSource {
+function toStreamSource(result: StreamResult, providerId: StreamingProviderId): StreamSource {
 	return {
 		quality: result.quality,
 		title: result.title,
@@ -341,7 +341,8 @@ function toStreamSource(result: StreamResult, _providerId: StreamingProviderId):
 		server: result.server,
 		language: result.language,
 		subtitles: result.subtitles,
-		headers: result.headers
+		headers: result.headers,
+		provider: providerId
 	};
 }
 
@@ -355,10 +356,22 @@ function toExtractionResult(
 ): ExtractionResult {
 	let sources = result.streams.map((s) => toStreamSource(s, result.provider));
 
+	// Log order before sorting
+	logger.debug('Sources before language sort', {
+		order: sources.map((s) => ({ server: s.server, lang: s.language, title: s.title })),
+		...streamLog
+	});
+
 	// Sort sources by language preference if provided
 	if (preferredLanguages?.length) {
 		sources = sortStreamsByLanguage(sources, preferredLanguages);
 	}
+
+	// Log order after sorting
+	logger.debug('Sources after language sort', {
+		order: sources.map((s) => ({ server: s.server, lang: s.language })),
+		...streamLog
+	});
 
 	return {
 		success: result.success,
@@ -579,10 +592,10 @@ async function doParallelExtraction(
 	if (successfulResults.length > 0) {
 		// Merge all successful streams from all providers
 		const allStreams: StreamResult[] = [];
-		const providers: string[] = [];
+		const providerIds: StreamingProviderId[] = [];
 
 		for (const result of successfulResults) {
-			providers.push(result.providerId);
+			providerIds.push(result.providerId);
 			for (const stream of result.result.streams) {
 				allStreams.push({
 					...stream,
@@ -592,7 +605,7 @@ async function doParallelExtraction(
 		}
 
 		logger.debug('Parallel extraction succeeded', {
-			providers,
+			providers: providerIds,
 			streamCount: allStreams.length,
 			...streamLog
 		});
@@ -601,7 +614,7 @@ async function doParallelExtraction(
 		const mergedResult: ProviderResult = {
 			success: true,
 			streams: allStreams,
-			provider: providers[0] // Primary provider for logging
+			provider: providerIds[0] // Primary provider for logging
 		};
 
 		return toExtractionResult(mergedResult, options.preferredLanguages);

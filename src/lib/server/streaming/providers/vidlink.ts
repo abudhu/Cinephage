@@ -36,7 +36,7 @@ export class VidlinkProvider extends BaseProvider {
 	readonly config: ProviderConfig = {
 		id: 'vidlink',
 		name: 'Vidlink',
-		priority: 20,
+		priority: 5, // Higher than Videasy to try first
 		enabledByDefault: true,
 		supportsMovies: true,
 		supportsTv: true,

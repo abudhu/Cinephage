@@ -72,6 +72,9 @@ export interface StreamSource {
 
 	/** Additional headers needed for playback */
 	headers?: Record<string, string>;
+
+	/** Provider ID that returned this stream */
+	provider?: string;
 }
 
 // ============================================================================
@@ -108,6 +111,9 @@ export interface StreamResult {
 
 	/** Additional headers needed for playback */
 	headers?: Record<string, string>;
+
+	/** Provider ID that returned this stream */
+	provider?: string;
 }
 
 // ============================================================================
