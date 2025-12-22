@@ -58,6 +58,33 @@ jobs:
             org.opencontainers.image.title=Cinephage
             org.opencontainers.image.description=Self-hosted media management application
 
+      - name: Build test image
+        run: docker buildx build --load -t cinephage:test .
+
+      - name: Test Docker image
+        run: |
+          docker run -d --name cinephage-test \
+            -p 3000:3000 \
+            -e ORIGIN=http://localhost:3000 \
+            cinephage:test
+
+          for i in {1..12}; do
+            if curl -sf http://localhost:3000/api/health; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Waiting for container... ($i/12)"
+            sleep 5
+          done
+
+          echo "Health check failed"
+          docker logs cinephage-test
+          exit 1
+
+      - name: Cleanup test container
+        if: always()
+        run: docker rm -f cinephage-test || true
+
       - name: Build and push Docker image
         id: build-push
         uses: docker/build-push-action@v6

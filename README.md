@@ -67,8 +67,8 @@ Edit `.env` to configure your settings:
 ```bash
 CINEPHAGE_PORT=3000
 CINEPHAGE_MEDIA_PATH=/path/to/your/media
-CINEPHAGE_PUID=1000
-CINEPHAGE_PGID=1000
+CINEPHAGE_UID=1000
+CINEPHAGE_GID=1000
 CINEPHAGE_ORIGIN=http://localhost:3000
 ```
 
@@ -84,12 +84,11 @@ docker compose up -d
 docker run -d \
   --name cinephage \
   --restart unless-stopped \
+  --user 1000:1000 \
   -p 3000:3000 \
   -v ./data:/app/data \
   -v ./logs:/app/logs \
   -v /path/to/your/media:/media \
-  -e PUID=1000 \
-  -e PGID=1000 \
   -e ORIGIN=http://localhost:3000 \
   -e TZ=UTC \
   ghcr.io/moldytaint/cinephage:latest

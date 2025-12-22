@@ -38,8 +38,6 @@ Edit `.env` to configure your deployment:
 ```bash
 CINEPHAGE_MEDIA_PATH=/path/to/your/media
 CINEPHAGE_ORIGIN=https://cinephage.yourdomain.com
-CINEPHAGE_PUID=1000
-CINEPHAGE_PGID=1000
 ```
 
 Start the container:
@@ -75,6 +73,41 @@ deploy:
       cpus: '2'
       memory: 2G
 ```
+
+### Rootless Configuration
+
+The Docker image runs as a non-root user for security. The container never runs as root.
+
+**Setup (match your media library permissions):**
+
+1. Find your media library's owner:
+   ```bash
+   ls -la /path/to/your/media
+   # Note the UID:GID (e.g., 1000:1000 or 911:911)
+   ```
+
+2. Set `CINEPHAGE_UID` and `CINEPHAGE_GID` in your `.env` to match:
+   ```bash
+   CINEPHAGE_UID=1000
+   CINEPHAGE_GID=1000
+   ```
+
+3. Ensure data/logs directories are accessible by the same user:
+   ```bash
+   mkdir -p ./data ./logs
+   chown -R 1000:1000 ./data ./logs
+   ```
+
+**Security features:**
+- `security_opt: no-new-privileges:true` prevents privilege escalation
+- Container user is created at build time (not dynamically at runtime)
+
+**Migration from PUID/PGID:**
+
+If upgrading from a previous version that used PUID/PGID environment variables:
+1. Remove `PUID` and `PGID` from your environment
+2. Set `CINEPHAGE_UID` and `CINEPHAGE_GID` to match your media library ownership
+3. Ensure data/logs directories are owned by the same UID/GID
 
 ---
 
