@@ -96,7 +96,8 @@ export class ImportWorker extends TaskWorker<ImportWorkerMetadata> {
 	 * Record a hardlink/copy/symlink operation.
 	 */
 	fileTransferred(filename: string, method: 'hardlink' | 'copy' | 'symlink'): void {
-		const action = method === 'hardlink' ? 'Hardlinked' : method === 'symlink' ? 'Symlinked' : 'Copied';
+		const action =
+			method === 'hardlink' ? 'Hardlinked' : method === 'symlink' ? 'Symlinked' : 'Copied';
 		this.log('debug', `${action}: ${filename}`);
 	}
 

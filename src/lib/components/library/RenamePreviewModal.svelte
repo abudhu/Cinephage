@@ -164,6 +164,7 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="modal-title"
+			tabindex="-1"
 		>
 			<!-- Header -->
 			<div class="flex items-center justify-between border-b border-base-300 p-4">
@@ -225,24 +226,19 @@
 						<!-- File List -->
 						<div class="space-y-2">
 							{#each allItems as item (item.fileId)}
-								<div
-									class="card bg-base-200"
-									class:opacity-50={item.status === 'already_correct'}
-									class:cursor-pointer={item.status === 'will_change'}
-									class:ring-2={item.status === 'will_change' && selectedIds.has(item.fileId)}
-									class:ring-primary={item.status === 'will_change' && selectedIds.has(item.fileId)}
-									onclick={() => item.status === 'will_change' && toggleSelect(item.fileId)}
-									onkeydown={(e) =>
-										e.key === 'Enter' && item.status === 'will_change' && toggleSelect(item.fileId)}
-									role={item.status === 'will_change' ? 'checkbox' : 'listitem'}
-									aria-checked={item.status === 'will_change'
-										? selectedIds.has(item.fileId)
-										: undefined}
-									tabindex={item.status === 'will_change' ? 0 : -1}
-								>
-									<div class="card-body p-3">
-										<div class="flex items-start gap-3">
-											{#if item.status === 'will_change'}
+								{#if item.status === 'will_change'}
+									<div
+										class="card cursor-pointer bg-base-200"
+										class:ring-2={selectedIds.has(item.fileId)}
+										class:ring-primary={selectedIds.has(item.fileId)}
+										onclick={() => toggleSelect(item.fileId)}
+										onkeydown={(e) => e.key === 'Enter' && toggleSelect(item.fileId)}
+										role="checkbox"
+										aria-checked={selectedIds.has(item.fileId)}
+										tabindex="0"
+									>
+										<div class="card-body p-3">
+											<div class="flex items-start gap-3">
 												<input
 													type="checkbox"
 													class="checkbox mt-1 checkbox-sm checkbox-primary"
@@ -250,10 +246,7 @@
 													onclick={(e) => e.stopPropagation()}
 													onchange={() => toggleSelect(item.fileId)}
 												/>
-											{/if}
-
-											<div class="min-w-0 flex-1">
-												{#if item.status === 'will_change' || item.status === 'collision'}
+												<div class="min-w-0 flex-1">
 													<div class="space-y-1 text-sm">
 														<div class="flex items-center gap-2">
 															<code
@@ -269,31 +262,62 @@
 															>
 														</div>
 													</div>
-												{:else}
-													<code class="rounded bg-base-300 px-1.5 py-0.5 text-xs break-all"
-														>{item.currentRelativePath}</code
-													>
-												{/if}
-
-												{#if item.error}
-													<div class="mt-1 text-xs text-error">{item.error}</div>
-												{/if}
-											</div>
-
-											<div class="flex-shrink-0">
-												{#if item.status === 'will_change'}
+													{#if item.error}
+														<div class="mt-1 text-xs text-error">{item.error}</div>
+													{/if}
+												</div>
+												<div class="flex-shrink-0">
 													<span class="badge badge-sm badge-info">Change</span>
-												{:else if item.status === 'already_correct'}
-													<span class="badge badge-sm badge-success">Correct</span>
-												{:else if item.status === 'collision'}
-													<span class="badge badge-sm badge-warning">Collision</span>
-												{:else if item.status === 'error'}
-													<span class="badge badge-sm badge-error">Error</span>
-												{/if}
+												</div>
 											</div>
 										</div>
 									</div>
-								</div>
+								{:else}
+									<div
+										class="card bg-base-200"
+										class:opacity-50={item.status === 'already_correct'}
+									>
+										<div class="card-body p-3">
+											<div class="flex items-start gap-3">
+												<div class="min-w-0 flex-1">
+													{#if item.status === 'collision'}
+														<div class="space-y-1 text-sm">
+															<div class="flex items-center gap-2">
+																<code
+																	class="rounded bg-base-300 px-1.5 py-0.5 text-xs break-all text-error"
+																	>{item.currentRelativePath}</code
+																>
+															</div>
+															<div class="flex items-center gap-2">
+																<ArrowRight class="h-3 w-3 flex-shrink-0 text-base-content/40" />
+																<code
+																	class="rounded bg-base-300 px-1.5 py-0.5 text-xs break-all text-success"
+																	>{item.newRelativePath}</code
+																>
+															</div>
+														</div>
+													{:else}
+														<code class="rounded bg-base-300 px-1.5 py-0.5 text-xs break-all"
+															>{item.currentRelativePath}</code
+														>
+													{/if}
+													{#if item.error}
+														<div class="mt-1 text-xs text-error">{item.error}</div>
+													{/if}
+												</div>
+												<div class="flex-shrink-0">
+													{#if item.status === 'already_correct'}
+														<span class="badge badge-sm badge-success">Correct</span>
+													{:else if item.status === 'collision'}
+														<span class="badge badge-sm badge-warning">Collision</span>
+													{:else if item.status === 'error'}
+														<span class="badge badge-sm badge-error">Error</span>
+													{/if}
+												</div>
+											</div>
+										</div>
+									</div>
+								{/if}
 							{/each}
 						</div>
 					{/if}

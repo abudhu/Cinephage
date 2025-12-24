@@ -214,9 +214,9 @@
 			releases = [];
 			meta = null;
 			searchError = null;
-			grabbingIds = new SvelteSet();
-			grabbedIds = new SvelteSet();
-			grabErrors = new SvelteMap();
+			grabbingIds.clear();
+			grabbedIds.clear();
+			grabErrors.clear();
 			filterQuery = '';
 			searchTriggered = false;
 		}

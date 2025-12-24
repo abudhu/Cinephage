@@ -41,26 +41,43 @@
 	let error = $state<string | null>(null);
 
 	// Basic info
-	let name = $state(list?.name ?? '');
-	let description = $state(list?.description ?? '');
-	let mediaType = $state<'movie' | 'tv'>((list?.mediaType as 'movie' | 'tv') ?? 'movie');
+	let name = $state('');
+	let description = $state('');
+	let mediaType = $state<'movie' | 'tv'>('movie');
 
 	// Filters
-	let filters = $state<SmartListFilters>(list?.filters ?? {});
+	let filters = $state<SmartListFilters>({});
 
 	// Settings
-	let sortBy = $state(list?.sortBy ?? 'popularity.desc');
-	let itemLimit = $state(list?.itemLimit ?? 100);
-	let excludeInLibrary = $state(list?.excludeInLibrary ?? true);
-	let refreshIntervalHours = $state(list?.refreshIntervalHours ?? 24);
+	let sortBy = $state('popularity.desc');
+	let itemLimit = $state(100);
+	let excludeInLibrary = $state(true);
+	let refreshIntervalHours = $state(24);
 
 	// Auto-add
-	let autoAddBehavior = $state<'disabled' | 'add_only' | 'add_and_search'>(
-		(list?.autoAddBehavior as 'disabled' | 'add_only' | 'add_and_search') ?? 'disabled'
-	);
-	let rootFolderId = $state(list?.rootFolderId ?? '');
-	let scoringProfileId = $state(list?.scoringProfileId ?? '');
-	let autoAddMonitored = $state(list?.autoAddMonitored ?? true);
+	let autoAddBehavior = $state<'disabled' | 'add_only' | 'add_and_search'>('disabled');
+	let rootFolderId = $state('');
+	let scoringProfileId = $state('');
+	let autoAddMonitored = $state(true);
+
+	// Sync form state when list prop changes
+	$effect(() => {
+		if (list) {
+			name = list.name ?? '';
+			description = list.description ?? '';
+			mediaType = (list.mediaType as 'movie' | 'tv') ?? 'movie';
+			filters = list.filters ?? {};
+			sortBy = list.sortBy ?? 'popularity.desc';
+			itemLimit = list.itemLimit ?? 100;
+			excludeInLibrary = list.excludeInLibrary ?? true;
+			refreshIntervalHours = list.refreshIntervalHours ?? 24;
+			autoAddBehavior =
+				(list.autoAddBehavior as 'disabled' | 'add_only' | 'add_and_search') ?? 'disabled';
+			rootFolderId = list.rootFolderId ?? '';
+			scoringProfileId = list.scoringProfileId ?? '';
+			autoAddMonitored = list.autoAddMonitored ?? true;
+		}
+	});
 
 	// Preview state
 	let previewItems = $state<PreviewItem[]>([]);

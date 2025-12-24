@@ -378,7 +378,11 @@ export class ImportService extends EventEmitter {
 
 		worker.fileTransferred(
 			basename(mainFile.path),
-			transferResult.mode === 'symlink' ? 'symlink' : transferResult.mode === 'hardlink' ? 'hardlink' : 'copy'
+			transferResult.mode === 'symlink'
+				? 'symlink'
+				: transferResult.mode === 'hardlink'
+					? 'hardlink'
+					: 'copy'
 		);
 		worker.setDestinationPath(destPath);
 

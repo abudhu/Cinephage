@@ -103,7 +103,7 @@
 	}
 
 	async function handleTest(provider: SubtitleProviderWithDefinition) {
-		testingIds = new SvelteSet([...testingIds, provider.id]);
+		testingIds.add(provider.id);
 		try {
 			const response = await fetch('/api/subtitles/providers/test', {
 				method: 'POST',
@@ -124,9 +124,7 @@
 		} catch (e) {
 			toasts.error(`Test failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
 		} finally {
-			const newSet = new SvelteSet(testingIds);
-			newSet.delete(provider.id);
-			testingIds = newSet;
+			testingIds.delete(provider.id);
 		}
 	}
 

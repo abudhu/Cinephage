@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { episodes, episodeFiles, series, rootFolders } from '$lib/server/db/schema.js';
-import { eq, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { unlink, rmdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { logger } from '$lib/logging';
@@ -92,17 +92,15 @@ export const DELETE: RequestHandler = async ({ params }) => {
 
 		// Update hasFile for all episodes that were covered by this file
 		if (fileEpisodeIds.length > 0) {
+			// Get all remaining files for this series
+			const remainingFiles = await db
+				.select({ episodeIds: episodeFiles.episodeIds })
+				.from(episodeFiles)
+				.where(eq(episodeFiles.seriesId, file.seriesId));
+
 			// For each episode, check if it still has any files
 			for (const epId of fileEpisodeIds) {
-				const remainingFiles = await db.select({ id: episodeFiles.id }).from(episodeFiles).limit(1);
-
-				// Check if any remaining file covers this episode
-				const hasRemainingFile = await db
-					.select({ episodeIds: episodeFiles.episodeIds })
-					.from(episodeFiles)
-					.where(eq(episodeFiles.seriesId, file.seriesId));
-
-				const stillHasFile = hasRemainingFile.some(
+				const stillHasFile = remainingFiles.some(
 					(f) => f.episodeIds && f.episodeIds.includes(epId)
 				);
 

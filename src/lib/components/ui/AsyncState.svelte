@@ -53,10 +53,8 @@
 {#if status !== 'idle'}
 	<div class="flex items-center gap-2 {config.class} {textSizes[size]}" class:inline-flex={inline}>
 		{#if showIcon && config.icon}
-			<svelte:component
-				this={config.icon}
-				class="{iconSizes[size]} {status === 'loading' ? 'animate-spin' : ''}"
-			/>
+			{@const Icon = config.icon}
+			<Icon class="{iconSizes[size]} {status === 'loading' ? 'animate-spin' : ''}" />
 		{/if}
 		<span>{config.text}</span>
 	</div>

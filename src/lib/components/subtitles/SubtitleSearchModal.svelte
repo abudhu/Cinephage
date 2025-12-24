@@ -107,9 +107,9 @@
 		if (!open) {
 			results = [];
 			searchError = null;
-			downloadingIds = new SvelteSet();
-			downloadedIds = new SvelteSet();
-			downloadErrors = new SvelteMap();
+			downloadingIds.clear();
+			downloadedIds.clear();
+			downloadErrors.clear();
 			filterQuery = '';
 			searchTriggered = false;
 			searchMeta = null;

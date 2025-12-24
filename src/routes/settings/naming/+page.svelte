@@ -28,8 +28,8 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// Local state for form
-	let config = $state({ ...data.config });
+	// Local state for form - syncs from data.config on mount
+	let config = $state(structuredClone(data.config));
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let success = $state(false);
@@ -53,8 +53,8 @@
 	let newPresetDescription = $state('');
 	let savingPreset = $state(false);
 
-	// Track previous media server to detect changes
-	let previousMediaServer = data.config.mediaServerIdFormat;
+	// Track previous media server to detect changes - used to detect when user changes it
+	let previousMediaServer = structuredClone(data.config.mediaServerIdFormat);
 
 	// Load custom presets on mount
 	$effect(() => {
@@ -272,7 +272,8 @@
 	}
 
 	function resetField(field: keyof typeof config) {
-		(config as Record<string, unknown>)[field] = data.defaults[field];
+		// @ts-expect-error - dynamic field access
+		config[field] = data.defaults[field];
 	}
 </script>
 
@@ -872,6 +873,11 @@
 				</button>
 			</div>
 		</div>
-		<div class="modal-backdrop" onclick={() => (showSavePresetModal = false)}></div>
+		<button
+			type="button"
+			class="modal-backdrop cursor-default border-none bg-black/50"
+			onclick={() => (showSavePresetModal = false)}
+			aria-label="Close modal"
+		></button>
 	</div>
 {/if}

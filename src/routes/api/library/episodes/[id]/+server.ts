@@ -156,39 +156,46 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 			}
 		}
 
-		// Delete file records from database and update hasFile for affected episodes
+		// Delete file records from database
 		for (const file of episodeFilesToDelete) {
 			await db.delete(episodeFiles).where(eq(episodeFiles.id, file.id));
+		}
 
-			// Update hasFile for all episodes that were covered by this file
+		// Query remaining files ONCE after all deletions
+		const remainingFiles = await db
+			.select({ episodeIds: episodeFiles.episodeIds })
+			.from(episodeFiles)
+			.where(eq(episodeFiles.seriesId, episode.seriesId));
+
+		// Collect all affected episode IDs
+		const affectedEpisodeIds = new Set<string>();
+		for (const file of episodeFilesToDelete) {
 			for (const epId of file.episodeIds || []) {
-				// Check if this episode still has other files
-				const remainingFiles = await db
-					.select({ episodeIds: episodeFiles.episodeIds })
-					.from(episodeFiles)
-					.where(eq(episodeFiles.seriesId, episode.seriesId));
-
-				const stillHasFile = remainingFiles.some(
-					(f) => f.episodeIds && f.episodeIds.includes(epId)
-				);
-
-				if (!stillHasFile) {
-					await db.update(episodes).set({ hasFile: false }).where(eq(episodes.id, epId));
-				}
+				affectedEpisodeIds.add(epId);
 			}
 		}
 
-		// Recalculate season episodeFileCount (count episodes with hasFile=true)
-		const seasonEpisodesWithFiles = await db
-			.select({ hasFile: episodes.hasFile })
-			.from(episodes)
-			.where(eq(episodes.seasonId, episode.seasonId))
-			.then((eps) => eps.filter((e) => e.hasFile).length);
+		// Update hasFile for affected episodes using in-memory check
+		for (const epId of affectedEpisodeIds) {
+			const stillHasFile = remainingFiles.some((f) => f.episodeIds && f.episodeIds.includes(epId));
+			if (!stillHasFile) {
+				await db.update(episodes).set({ hasFile: false }).where(eq(episodes.id, epId));
+			}
+		}
 
-		await db
-			.update(seasons)
-			.set({ episodeFileCount: seasonEpisodesWithFiles })
-			.where(eq(seasons.id, episode.seasonId));
+		// Recalculate season episodeFileCount (only if episode has a season)
+		if (episode.seasonId) {
+			const seasonEpisodesWithFiles = await db
+				.select({ hasFile: episodes.hasFile })
+				.from(episodes)
+				.where(eq(episodes.seasonId, episode.seasonId))
+				.then((eps) => eps.filter((e) => e.hasFile).length);
+
+			await db
+				.update(seasons)
+				.set({ episodeFileCount: seasonEpisodesWithFiles })
+				.where(eq(seasons.id, episode.seasonId));
+		}
 
 		// Recalculate series episodeFileCount
 		const seriesEpisodesWithFiles = await db

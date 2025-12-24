@@ -5,7 +5,18 @@
  * Prefers hardlinks to save disk space while keeping files for seeding.
  */
 
-import { link, copyFile, mkdir, stat, readdir, unlink, rename, lstat, readlink, symlink } from 'fs/promises';
+import {
+	link,
+	copyFile,
+	mkdir,
+	stat,
+	readdir,
+	unlink,
+	rename,
+	lstat,
+	readlink,
+	symlink
+} from 'fs/promises';
 import { join, dirname, basename, extname } from 'path';
 import { logger } from '$lib/logging';
 

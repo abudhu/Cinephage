@@ -268,10 +268,7 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 		await db.delete(movieFiles).where(eq(movieFiles.movieId, params.id));
 
 		// Update movie to show as missing
-		await db
-			.update(movies)
-			.set({ hasFile: false })
-			.where(eq(movies.id, params.id));
+		await db.update(movies).set({ hasFile: false }).where(eq(movies.id, params.id));
 
 		// Note: Movie metadata is kept - it will show as "missing"
 		return json({ success: true });

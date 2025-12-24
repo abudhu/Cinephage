@@ -316,7 +316,7 @@
 			monitorSpecials = false;
 			seriesType = 'standard';
 			seasonFolder = true;
-			monitoredSeasons = new SvelteSet();
+			monitoredSeasons.clear();
 			showSeasonSelection = false;
 			showAdvanced = false;
 			error = null;
@@ -339,7 +339,7 @@
 	});
 
 	function updateMonitoredSeasonsFromType(type: MonitorType) {
-		const newMonitored = new SvelteSet<number>();
+		monitoredSeasons.clear();
 
 		// Helper to check if a season should be included (respects monitorSpecials)
 		const shouldIncludeSeason = (s: Season) => {
@@ -349,12 +349,12 @@
 
 		switch (type) {
 			case 'all':
-				seasons.filter(shouldIncludeSeason).forEach((s) => newMonitored.add(s.season_number));
+				seasons.filter(shouldIncludeSeason).forEach((s) => monitoredSeasons.add(s.season_number));
 				break;
 			case 'firstSeason': {
 				const firstSeason =
 					seasons.find((s) => s.season_number === 1) ?? seasons.find((s) => s.season_number > 0);
-				if (firstSeason) newMonitored.add(firstSeason.season_number);
+				if (firstSeason) monitoredSeasons.add(firstSeason.season_number);
 				break;
 			}
 			case 'lastSeason': {
@@ -363,24 +363,22 @@
 					regularSeasons.length > 0
 						? regularSeasons[regularSeasons.length - 1]
 						: seasons[seasons.length - 1];
-				if (lastSeason) newMonitored.add(lastSeason.season_number);
+				if (lastSeason) monitoredSeasons.add(lastSeason.season_number);
 				break;
 			}
 			case 'recent':
 				// Recent monitors all seasons that have recent or future episodes
 				// The actual episode filtering happens server-side, but we monitor all non-specials
-				seasons.filter(shouldIncludeSeason).forEach((s) => newMonitored.add(s.season_number));
+				seasons.filter(shouldIncludeSeason).forEach((s) => monitoredSeasons.add(s.season_number));
 				break;
 			case 'none':
-				// Empty set
+				// Empty set - already cleared
 				break;
 			default:
 				// For 'future', 'missing', 'existing', 'pilot' - monitor all seasons but episode filtering is handled server-side
-				seasons.filter(shouldIncludeSeason).forEach((s) => newMonitored.add(s.season_number));
+				seasons.filter(shouldIncludeSeason).forEach((s) => monitoredSeasons.add(s.season_number));
 				break;
 		}
-
-		monitoredSeasons = newMonitored;
 	}
 
 	async function loadData() {
@@ -418,7 +416,10 @@
 					const tvData = await tvRes.json();
 					seasons = tvData.seasons?.filter((s: Season) => s.episode_count > 0) ?? [];
 					// Initialize all seasons as monitored by default
-					monitoredSeasons = new SvelteSet(seasons.map((s) => s.season_number));
+					monitoredSeasons.clear();
+					for (const s of seasons) {
+						monitoredSeasons.add(s.season_number);
+					}
 				}
 			}
 
@@ -503,20 +504,20 @@
 	}
 
 	function toggleSeason(seasonNumber: number) {
-		const newSet = new SvelteSet(monitoredSeasons);
-		if (newSet.has(seasonNumber)) {
-			newSet.delete(seasonNumber);
+		if (monitoredSeasons.has(seasonNumber)) {
+			monitoredSeasons.delete(seasonNumber);
 		} else {
-			newSet.add(seasonNumber);
+			monitoredSeasons.add(seasonNumber);
 		}
-		monitoredSeasons = newSet;
 	}
 
 	function toggleAllSeasons() {
 		if (allSeasonsMonitored) {
-			monitoredSeasons = new SvelteSet();
+			monitoredSeasons.clear();
 		} else {
-			monitoredSeasons = new SvelteSet(seasons.map((s) => s.season_number));
+			for (const s of seasons) {
+				monitoredSeasons.add(s.season_number);
+			}
 		}
 	}
 
@@ -1107,7 +1108,8 @@
 
 					<!-- Advanced Options (TV only) -->
 					{#if mediaType === 'tv'}
-						<div
+						<button
+							type="button"
 							class="divider cursor-pointer text-xs text-base-content/50"
 							onclick={() => (showAdvanced = !showAdvanced)}
 						>
@@ -1117,7 +1119,7 @@
 							{:else}
 								<ChevronDown class="ml-1 inline h-3 w-3" />
 							{/if}
-						</div>
+						</button>
 
 						{#if showAdvanced}
 							<!-- Series Type -->

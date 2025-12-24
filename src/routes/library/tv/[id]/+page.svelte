@@ -331,7 +331,11 @@
 					s.id === deletingSeasonId
 						? {
 								...s,
-								episodes: s.episodes.map((e) => ({ ...e, hasFile: false, file: undefined }))
+								episodes: s.episodes.map((e) => ({
+									...e,
+									hasFile: false as boolean | null,
+									file: null
+								}))
 							}
 						: s
 				);
@@ -380,7 +384,7 @@
 				data.seasons = data.seasons.map((season) => ({
 					...season,
 					episodes: season.episodes.map((e) =>
-						e.id === deletingEpisodeId ? { ...e, hasFile: false, file: undefined } : e
+						e.id === deletingEpisodeId ? { ...e, hasFile: false as boolean | null, file: null } : e
 					)
 				}));
 			} else {
@@ -470,7 +474,7 @@
 
 	// Auto-search handlers
 	async function handleAutoSearchEpisode(episode: Episode & { id: string }) {
-		autoSearchingEpisodes = new SvelteSet([...autoSearchingEpisodes, episode.id]);
+		autoSearchingEpisodes.add(episode.id);
 
 		try {
 			const response = await fetch(`/api/library/series/${data.series.id}/auto-search`, {
@@ -485,46 +489,30 @@
 			const result = await response.json();
 			const itemResult = result.results?.[0];
 
-			autoSearchEpisodeResults = new SvelteMap([
-				...autoSearchEpisodeResults,
-				[
-					episode.id,
-					{
-						found: itemResult?.found ?? false,
-						grabbed: itemResult?.grabbed ?? false,
-						releaseName: itemResult?.releaseName,
-						error: itemResult?.error
-					}
-				]
-			]);
+			autoSearchEpisodeResults.set(episode.id, {
+				found: itemResult?.found ?? false,
+				grabbed: itemResult?.grabbed ?? false,
+				releaseName: itemResult?.releaseName,
+				error: itemResult?.error
+			});
 
 			// Clear result after 5 seconds
 			setTimeout(() => {
-				autoSearchEpisodeResults = new SvelteMap(
-					[...autoSearchEpisodeResults].filter(([id]) => id !== episode.id)
-				);
+				autoSearchEpisodeResults.delete(episode.id);
 			}, 5000);
 		} catch (error) {
-			autoSearchEpisodeResults = new SvelteMap([
-				...autoSearchEpisodeResults,
-				[
-					episode.id,
-					{
-						found: false,
-						grabbed: false,
-						error: error instanceof Error ? error.message : 'Search failed'
-					}
-				]
-			]);
+			autoSearchEpisodeResults.set(episode.id, {
+				found: false,
+				grabbed: false,
+				error: error instanceof Error ? error.message : 'Search failed'
+			});
 		} finally {
-			autoSearchingEpisodes = new SvelteSet(
-				[...autoSearchingEpisodes].filter((id) => id !== episode.id)
-			);
+			autoSearchingEpisodes.delete(episode.id);
 		}
 	}
 
 	async function handleAutoSearchSeason(season: Season) {
-		autoSearchingSeasons = new SvelteSet([...autoSearchingSeasons, season.id]);
+		autoSearchingSeasons.add(season.id);
 
 		try {
 			const response = await fetch(`/api/library/series/${data.series.id}/auto-search`, {
@@ -539,41 +527,25 @@
 			const result = await response.json();
 			const itemResult = result.results?.[0];
 
-			autoSearchSeasonResults = new SvelteMap([
-				...autoSearchSeasonResults,
-				[
-					season.id,
-					{
-						found: itemResult?.found ?? false,
-						grabbed: itemResult?.grabbed ?? false,
-						releaseName: itemResult?.releaseName,
-						error: itemResult?.error
-					}
-				]
-			]);
+			autoSearchSeasonResults.set(season.id, {
+				found: itemResult?.found ?? false,
+				grabbed: itemResult?.grabbed ?? false,
+				releaseName: itemResult?.releaseName,
+				error: itemResult?.error
+			});
 
 			// Clear result after 5 seconds
 			setTimeout(() => {
-				autoSearchSeasonResults = new SvelteMap(
-					[...autoSearchSeasonResults].filter(([id]) => id !== season.id)
-				);
+				autoSearchSeasonResults.delete(season.id);
 			}, 5000);
 		} catch (error) {
-			autoSearchSeasonResults = new SvelteMap([
-				...autoSearchSeasonResults,
-				[
-					season.id,
-					{
-						found: false,
-						grabbed: false,
-						error: error instanceof Error ? error.message : 'Search failed'
-					}
-				]
-			]);
+			autoSearchSeasonResults.set(season.id, {
+				found: false,
+				grabbed: false,
+				error: error instanceof Error ? error.message : 'Search failed'
+			});
 		} finally {
-			autoSearchingSeasons = new SvelteSet(
-				[...autoSearchingSeasons].filter((id) => id !== season.id)
-			);
+			autoSearchingSeasons.delete(season.id);
 		}
 	}
 
@@ -614,7 +586,9 @@
 		if (episodeIds.length === 0) return;
 
 		// Mark all selected as searching
-		autoSearchingEpisodes = new SvelteSet([...autoSearchingEpisodes, ...episodeIds]);
+		for (const id of episodeIds) {
+			autoSearchingEpisodes.add(id);
+		}
 
 		try {
 			const response = await fetch(`/api/library/series/${data.series.id}/auto-search`, {
@@ -629,33 +603,31 @@
 			const result = await response.json();
 
 			// Update results for each episode
-			const newResults = new SvelteMap(autoSearchEpisodeResults);
 			for (const itemResult of result.results ?? []) {
-				newResults.set(itemResult.itemId, {
+				autoSearchEpisodeResults.set(itemResult.itemId, {
 					found: itemResult.found,
 					grabbed: itemResult.grabbed,
 					releaseName: itemResult.releaseName,
 					error: itemResult.error
 				});
 			}
-			autoSearchEpisodeResults = newResults;
 
 			// Clear selection after search
-			selectedEpisodes = new SvelteSet();
+			selectedEpisodes.clear();
 			showCheckboxes = false;
 
 			// Clear results after 5 seconds
 			setTimeout(() => {
-				autoSearchEpisodeResults = new SvelteMap(
-					[...autoSearchEpisodeResults].filter(([id]) => !episodeIds.includes(id))
-				);
+				for (const id of episodeIds) {
+					autoSearchEpisodeResults.delete(id);
+				}
 			}, 5000);
 		} catch (error) {
 			console.error('Bulk search failed:', error);
 		} finally {
-			autoSearchingEpisodes = new SvelteSet(
-				[...autoSearchingEpisodes].filter((id) => !episodeIds.includes(id))
-			);
+			for (const id of episodeIds) {
+				autoSearchingEpisodes.delete(id);
+			}
 		}
 	}
 
@@ -677,7 +649,7 @@
 	}
 
 	async function handleSubtitleAutoSearch(episode: EpisodeForSubtitle) {
-		subtitleAutoSearchingEpisodes = new SvelteSet([...subtitleAutoSearchingEpisodes, episode.id]);
+		subtitleAutoSearchingEpisodes.add(episode.id);
 
 		try {
 			const response = await fetch('/api/subtitles/auto-search', {
@@ -701,9 +673,7 @@
 		} catch (error) {
 			console.error('Failed to auto-search subtitles:', error);
 		} finally {
-			subtitleAutoSearchingEpisodes = new SvelteSet(
-				[...subtitleAutoSearchingEpisodes].filter((id) => id !== episode.id)
-			);
+			subtitleAutoSearchingEpisodes.delete(episode.id);
 		}
 	}
 
@@ -715,9 +685,9 @@
 	// Selection handlers
 	function handleEpisodeSelectChange(episodeId: string, selected: boolean) {
 		if (selected) {
-			selectedEpisodes = new SvelteSet([...selectedEpisodes, episodeId]);
+			selectedEpisodes.add(episodeId);
 		} else {
-			selectedEpisodes = new SvelteSet([...selectedEpisodes].filter((id) => id !== episodeId));
+			selectedEpisodes.delete(episodeId);
 		}
 	}
 
@@ -728,23 +698,25 @@
 		const episodeIds = season.episodes.map((e) => e.id);
 
 		if (selectAll) {
-			selectedEpisodes = new SvelteSet([...selectedEpisodes, ...episodeIds]);
+			for (const id of episodeIds) {
+				selectedEpisodes.add(id);
+			}
 		} else {
-			selectedEpisodes = new SvelteSet(
-				[...selectedEpisodes].filter((id) => !episodeIds.includes(id))
-			);
+			for (const id of episodeIds) {
+				selectedEpisodes.delete(id);
+			}
 		}
 	}
 
 	function toggleSelectionMode() {
 		showCheckboxes = !showCheckboxes;
 		if (!showCheckboxes) {
-			selectedEpisodes = new SvelteSet();
+			selectedEpisodes.clear();
 		}
 	}
 
 	function clearSelection() {
-		selectedEpisodes = new SvelteSet();
+		selectedEpisodes.clear();
 	}
 
 	interface Release {

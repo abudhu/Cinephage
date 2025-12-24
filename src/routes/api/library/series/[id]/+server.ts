@@ -308,10 +308,7 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 		}
 
 		// Get all episode files for this series
-		const files = await db
-			.select()
-			.from(episodeFiles)
-			.where(eq(episodeFiles.seriesId, params.id));
+		const files = await db.select().from(episodeFiles).where(eq(episodeFiles.seriesId, params.id));
 
 		if (files.length === 0) {
 			return json({ success: false, error: 'Series has no files to delete' }, { status: 400 });
@@ -363,22 +360,13 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 		await db.delete(episodeFiles).where(eq(episodeFiles.seriesId, params.id));
 
 		// Update all episodes in this series to hasFile=false
-		await db
-			.update(episodes)
-			.set({ hasFile: false })
-			.where(eq(episodes.seriesId, params.id));
+		await db.update(episodes).set({ hasFile: false }).where(eq(episodes.seriesId, params.id));
 
 		// Update all seasons' episode file count to 0
-		await db
-			.update(seasons)
-			.set({ episodeFileCount: 0 })
-			.where(eq(seasons.seriesId, params.id));
+		await db.update(seasons).set({ episodeFileCount: 0 }).where(eq(seasons.seriesId, params.id));
 
 		// Update series episode file count
-		await db
-			.update(series)
-			.set({ episodeFileCount: 0 })
-			.where(eq(series.id, params.id));
+		await db.update(series).set({ episodeFileCount: 0 }).where(eq(series.id, params.id));
 
 		// Note: Series, season, and episode metadata is kept - episodes will show as "missing"
 		return json({ success: true });

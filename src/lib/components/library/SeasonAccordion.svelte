@@ -125,8 +125,12 @@
 		onEpisodeDelete
 	}: Props = $props();
 
-	// Track accordion open state
-	let isOpen = $state(defaultOpen);
+	// Track accordion open state - sync when defaultOpen prop changes
+	// eslint-disable-next-line svelte/prefer-writable-derived -- needs to be writable for user toggling
+	let isOpen = $state(false);
+	$effect(() => {
+		isOpen = defaultOpen;
+	});
 
 	const downloadedCount = $derived(season.episodeFileCount ?? 0);
 	const totalCount = $derived(season.episodeCount ?? season.episodes.length);
@@ -267,7 +271,7 @@
 			<!-- Delete season -->
 			{#if onSeasonDelete}
 				<button
-					class="btn btn-ghost btn-sm text-error"
+					class="btn text-error btn-ghost btn-sm"
 					onclick={handleSeasonDelete}
 					title="Delete season"
 				>

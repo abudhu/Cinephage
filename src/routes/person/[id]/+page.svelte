@@ -34,7 +34,7 @@
 
 	let loading = $state(true);
 	let loadingMore = $state(false);
-	let sentinel: HTMLElement;
+	let sentinel = $state<HTMLElement | null>(null);
 
 	// Deduplicate credits by ID (actor may have multiple roles in same media)
 	function dedupeById<T extends { id: number }>(items: T[]): T[] {

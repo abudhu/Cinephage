@@ -116,20 +116,20 @@
 	}
 
 	function handleSelect(id: string, selected: boolean) {
-		const newSet = new SvelteSet(selectedIds);
 		if (selected) {
-			newSet.add(id);
+			selectedIds.add(id);
 		} else {
-			newSet.delete(id);
+			selectedIds.delete(id);
 		}
-		selectedIds = newSet;
 	}
 
 	function handleSelectAll(selected: boolean) {
 		if (selected) {
-			selectedIds = new SvelteSet(filteredIndexers().map((i) => i.id));
+			for (const indexer of filteredIndexers()) {
+				selectedIds.add(indexer.id);
+			}
 		} else {
-			selectedIds = new SvelteSet();
+			selectedIds.clear();
 		}
 	}
 
@@ -151,7 +151,7 @@
 	}
 
 	async function handleTest(indexer: IndexerWithStatus) {
-		testingIds = new SvelteSet([...testingIds, indexer.id]);
+		testingIds.add(indexer.id);
 		try {
 			const response = await fetch('/api/indexers/test', {
 				method: 'POST',
@@ -172,9 +172,7 @@
 		} catch (e) {
 			toasts.error(`Test failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
 		} finally {
-			const newSet = new SvelteSet(testingIds);
-			newSet.delete(indexer.id);
-			testingIds = newSet;
+			testingIds.delete(indexer.id);
 		}
 	}
 
@@ -294,7 +292,7 @@
 			form.append('ids', JSON.stringify([...selectedIds]));
 			await fetch(`?/bulkEnable`, { method: 'POST', body: form });
 			await invalidateAll();
-			selectedIds = new SvelteSet();
+			selectedIds.clear();
 		} finally {
 			bulkLoading = false;
 		}
@@ -307,7 +305,7 @@
 			form.append('ids', JSON.stringify([...selectedIds]));
 			await fetch(`?/bulkDisable`, { method: 'POST', body: form });
 			await invalidateAll();
-			selectedIds = new SvelteSet();
+			selectedIds.clear();
 		} finally {
 			bulkLoading = false;
 		}
@@ -321,7 +319,7 @@
 			form.append('ids', JSON.stringify([...selectedIds]));
 			await fetch(`?/bulkDelete`, { method: 'POST', body: form });
 			await invalidateAll();
-			selectedIds = new SvelteSet();
+			selectedIds.clear();
 		} finally {
 			bulkLoading = false;
 		}

@@ -16,7 +16,7 @@
 		lastFailure,
 		disabledUntil
 	}: Props = $props();
-	// healthy is exposed for potential parent use
+	// Intentionally unused - kept for API compatibility
 	void _healthy;
 
 	// Use $derived for reactive computed values from props

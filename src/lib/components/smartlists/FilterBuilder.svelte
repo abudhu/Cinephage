@@ -305,7 +305,7 @@
 			<div class="space-y-4 pt-2">
 				<!-- Genres Include -->
 				<div class="form-control">
-					<label class="label py-1">
+					<div class="label py-1">
 						<span
 							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
 							>Include Genres</span
@@ -313,7 +313,7 @@
 						{#if filters.withGenres?.length}
 							<span class="badge badge-sm badge-primary">{filters.withGenres.length}</span>
 						{/if}
-					</label>
+					</div>
 					{#if loadingGenres}
 						<div class="flex items-center gap-2 py-2">
 							<Loader2 class="h-4 w-4 animate-spin" />
@@ -338,7 +338,7 @@
 
 				<!-- Genres Exclude -->
 				<div class="form-control">
-					<label class="label py-1">
+					<div class="label py-1">
 						<span
 							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
 							>Exclude Genres</span
@@ -346,7 +346,7 @@
 						{#if filters.withoutGenres?.length}
 							<span class="badge badge-sm badge-error">{filters.withoutGenres.length}</span>
 						{/if}
-					</label>
+					</div>
 					<div class="flex flex-wrap gap-1.5">
 						{#each genres as genre (genre.id)}
 							<button
@@ -365,12 +365,12 @@
 				<!-- Genre Mode -->
 				{#if filters.withGenres && filters.withGenres.length > 1}
 					<div class="form-control">
-						<label class="label py-1">
+						<div class="label py-1">
 							<span
 								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
 								>Genre Match Mode</span
 							>
-						</label>
+						</div>
 						<div class="flex gap-4">
 							<label class="label cursor-pointer gap-2">
 								<input
@@ -489,12 +489,12 @@
 			<div class="space-y-4 pt-2">
 				<!-- Keywords -->
 				<div class="form-control">
-					<label class="label py-1">
+					<div class="label py-1">
 						<span
 							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
 							>Keywords</span
 						>
-					</label>
+					</div>
 					<div class="relative">
 						<input
 							type="text"
@@ -651,12 +651,12 @@
 		<div class="collapse-content">
 			<div class="space-y-4 pt-2">
 				<div class="form-control">
-					<label class="label py-1">
+					<div class="label py-1">
 						<span
 							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
 							>Cast & Crew</span
 						>
-					</label>
+					</div>
 					<div class="relative">
 						<input
 							type="text"
@@ -772,7 +772,7 @@
 
 				<!-- Providers Grid -->
 				<div class="form-control">
-					<label class="label py-1">
+					<div class="label py-1">
 						<span
 							class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
 							>Available On</span
@@ -780,7 +780,7 @@
 						{#if filters.withWatchProviders?.length}
 							<span class="badge badge-sm badge-primary">{filters.withWatchProviders.length}</span>
 						{/if}
-					</label>
+					</div>
 					{#if loadingProviders}
 						<div class="flex items-center gap-2 py-2">
 							<Loader2 class="h-4 w-4 animate-spin" />

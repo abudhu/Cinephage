@@ -18,7 +18,11 @@
 
 	// Local state for files (so we can update after actions)
 	// Initialized from props, refreshed via refreshList()
-	let files = $state(data.files);
+	// eslint-disable-next-line svelte/prefer-writable-derived -- needs writable state for mutations
+	let files = $state<typeof data.files>([]);
+	$effect(() => {
+		files = data.files;
+	});
 	let filter = $state<'all' | 'movie' | 'tv'>('all');
 	let isProcessing = $state(false);
 	let selectedFile = $state<(typeof files)[0] | null>(null);

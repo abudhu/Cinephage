@@ -423,7 +423,7 @@
 			<!-- Delete episode -->
 			{#if onDelete}
 				<button
-					class="btn btn-ghost btn-xs text-error"
+					class="btn text-error btn-ghost btn-xs"
 					onclick={handleDeleteClick}
 					title="Delete episode"
 				>

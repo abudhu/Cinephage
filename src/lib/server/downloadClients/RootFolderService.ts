@@ -173,7 +173,8 @@ export class RootFolderService {
 		if (updates.mediaType !== undefined) updateData.mediaType = updates.mediaType;
 		if (updates.isDefault !== undefined) updateData.isDefault = updates.isDefault;
 		if (updates.readOnly !== undefined) updateData.readOnly = updates.readOnly;
-		if (updates.preserveSymlinks !== undefined) updateData.preserveSymlinks = updates.preserveSymlinks;
+		if (updates.preserveSymlinks !== undefined)
+			updateData.preserveSymlinks = updates.preserveSymlinks;
 
 		await db.update(rootFoldersTable).set(updateData).where(eq(rootFoldersTable.id, id));
 

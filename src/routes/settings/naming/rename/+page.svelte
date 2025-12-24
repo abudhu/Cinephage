@@ -324,21 +324,19 @@
 		<!-- File List -->
 		<div class="space-y-2">
 			{#each currentItems() as item (item.fileId)}
-				<div
-					class="card cursor-pointer bg-base-200 transition-colors hover:bg-base-300"
-					class:ring-2={activeTab === 'willChange' && selectedIds.has(item.fileId)}
-					class:ring-primary={activeTab === 'willChange' && selectedIds.has(item.fileId)}
-					onclick={() => activeTab === 'willChange' && toggleSelect(item.fileId)}
-					onkeydown={(e) =>
-						e.key === 'Enter' && activeTab === 'willChange' && toggleSelect(item.fileId)}
-					role={activeTab === 'willChange' ? 'checkbox' : 'listitem'}
-					aria-checked={activeTab === 'willChange' ? selectedIds.has(item.fileId) : undefined}
-					tabindex="0"
-				>
-					<div class="card-body p-4">
-						<div class="flex items-start gap-4">
-							<!-- Checkbox (only for willChange) -->
-							{#if activeTab === 'willChange'}
+				{#if activeTab === 'willChange'}
+					<div
+						class="card cursor-pointer bg-base-200 transition-colors hover:bg-base-300"
+						class:ring-2={selectedIds.has(item.fileId)}
+						class:ring-primary={selectedIds.has(item.fileId)}
+						onclick={() => toggleSelect(item.fileId)}
+						onkeydown={(e) => e.key === 'Enter' && toggleSelect(item.fileId)}
+						role="checkbox"
+						aria-checked={selectedIds.has(item.fileId)}
+						tabindex="0"
+					>
+						<div class="card-body p-4">
+							<div class="flex items-start gap-4">
 								<div class="flex-shrink-0 pt-1">
 									<input
 										type="checkbox"
@@ -348,22 +346,15 @@
 										onchange={() => toggleSelect(item.fileId)}
 									/>
 								</div>
-							{/if}
-
-							<!-- Icon -->
-							<div class="flex-shrink-0 pt-1">
-								{#if item.mediaType === 'movie'}
-									<Film class="h-5 w-5 text-primary" />
-								{:else}
-									<Tv class="h-5 w-5 text-secondary" />
-								{/if}
-							</div>
-
-							<!-- Content -->
-							<div class="min-w-0 flex-1">
-								<div class="font-medium">{item.mediaTitle}</div>
-
-								{#if activeTab === 'willChange' || activeTab === 'collisions'}
+								<div class="flex-shrink-0 pt-1">
+									{#if item.mediaType === 'movie'}
+										<Film class="h-5 w-5 text-primary" />
+									{:else}
+										<Tv class="h-5 w-5 text-secondary" />
+									{/if}
+								</div>
+								<div class="min-w-0 flex-1">
+									<div class="font-medium">{item.mediaTitle}</div>
 									<div class="mt-2 space-y-1">
 										<div class="flex items-center gap-2 text-sm">
 											<span class="w-12 text-base-content/60">From:</span>
@@ -378,50 +369,81 @@
 											>
 										</div>
 									</div>
-								{:else if activeTab === 'alreadyCorrect'}
-									<div class="mt-2 text-sm">
-										<code class="rounded bg-base-300 px-2 py-0.5 break-all"
-											>{item.currentRelativePath}</code
-										>
-									</div>
-								{:else if activeTab === 'errors'}
-									<div class="mt-2 space-y-1">
-										<div class="text-sm">
+								</div>
+								<div class="flex-shrink-0">
+									<span class="badge badge-info">Will Change</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				{:else}
+					<div class="card bg-base-200">
+						<div class="card-body p-4">
+							<div class="flex items-start gap-4">
+								<div class="flex-shrink-0 pt-1">
+									{#if item.mediaType === 'movie'}
+										<Film class="h-5 w-5 text-primary" />
+									{:else}
+										<Tv class="h-5 w-5 text-secondary" />
+									{/if}
+								</div>
+								<div class="min-w-0 flex-1">
+									<div class="font-medium">{item.mediaTitle}</div>
+									{#if activeTab === 'collisions'}
+										<div class="mt-2 space-y-1">
+											<div class="flex items-center gap-2 text-sm">
+												<span class="w-12 text-base-content/60">From:</span>
+												<code class="rounded bg-base-300 px-2 py-0.5 break-all text-error"
+													>{item.currentRelativePath}</code
+												>
+											</div>
+											<div class="flex items-center gap-2 text-sm">
+												<span class="w-12 text-base-content/60">To:</span>
+												<code class="rounded bg-base-300 px-2 py-0.5 break-all text-success"
+													>{item.newRelativePath}</code
+												>
+											</div>
+										</div>
+									{:else if activeTab === 'alreadyCorrect'}
+										<div class="mt-2 text-sm">
 											<code class="rounded bg-base-300 px-2 py-0.5 break-all"
 												>{item.currentRelativePath}</code
 											>
 										</div>
-										{#if item.error}
-											<div class="text-sm text-error">{item.error}</div>
-										{/if}
-									</div>
-								{/if}
-
-								{#if item.status === 'collision' && item.collisionsWith}
-									<div class="mt-2 text-sm text-warning">
-										Conflicts with {item.collisionsWith.length} other file{item.collisionsWith
-											.length !== 1
-											? 's'
-											: ''}
-									</div>
-								{/if}
-							</div>
-
-							<!-- Status Badge -->
-							<div class="flex-shrink-0">
-								{#if item.status === 'will_change'}
-									<span class="badge badge-info">Will Change</span>
-								{:else if item.status === 'already_correct'}
-									<span class="badge badge-success">Correct</span>
-								{:else if item.status === 'collision'}
-									<span class="badge badge-warning">Collision</span>
-								{:else if item.status === 'error'}
-									<span class="badge badge-error">Error</span>
-								{/if}
+									{:else if activeTab === 'errors'}
+										<div class="mt-2 space-y-1">
+											<div class="text-sm">
+												<code class="rounded bg-base-300 px-2 py-0.5 break-all"
+													>{item.currentRelativePath}</code
+												>
+											</div>
+											{#if item.error}
+												<div class="text-sm text-error">{item.error}</div>
+											{/if}
+										</div>
+									{/if}
+									{#if item.status === 'collision' && item.collisionsWith}
+										<div class="mt-2 text-sm text-warning">
+											Conflicts with {item.collisionsWith.length} other file{item.collisionsWith
+												.length !== 1
+												? 's'
+												: ''}
+										</div>
+									{/if}
+								</div>
+								<div class="flex-shrink-0">
+									{#if item.status === 'already_correct'}
+										<span class="badge badge-success">Correct</span>
+									{:else if item.status === 'collision'}
+										<span class="badge badge-warning">Collision</span>
+									{:else if item.status === 'error'}
+										<span class="badge badge-error">Error</span>
+									{/if}
+								</div>
 							</div>
 						</div>
 					</div>
-				</div>
+				{/if}
 			{:else}
 				<div class="text-center py-10 text-base-content/60">
 					{#if activeTab === 'willChange'}
