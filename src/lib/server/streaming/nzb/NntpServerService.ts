@@ -1,0 +1,270 @@
+/**
+ * NntpServerService - Manages NNTP server configurations for NZB streaming.
+ * Provides CRUD operations and sync with download clients.
+ */
+
+import { db } from '$lib/server/db';
+import {
+	nntpServers,
+	type NntpServerRecord,
+	type NewNntpServerRecord
+} from '$lib/server/db/schema';
+import { eq, asc } from 'drizzle-orm';
+import { logger } from '$lib/logging';
+import { randomUUID } from 'crypto';
+import { getDownloadClientManager } from '$lib/server/downloadClients';
+import type { NntpServerCreate, NntpServerUpdate } from '$lib/validation/schemas';
+
+/**
+ * Public NNTP server info (password redacted).
+ */
+export interface NntpServerInfo {
+	id: string;
+	name: string;
+	host: string;
+	port: number;
+	useSsl: boolean;
+	username: string | null;
+	hasPassword: boolean;
+	maxConnections: number;
+	priority: number;
+	enabled: boolean;
+	downloadClientId: string | null;
+	autoFetched: boolean;
+	lastTestedAt: string | null;
+	testResult: string | null;
+	testError: string | null;
+	createdAt: string | null;
+	updatedAt: string | null;
+}
+
+/**
+ * Convert database record to public info (redact password).
+ */
+function toPublicInfo(record: NntpServerRecord): NntpServerInfo {
+	return {
+		id: record.id,
+		name: record.name,
+		host: record.host,
+		port: record.port,
+		useSsl: record.useSsl ?? true,
+		username: record.username,
+		hasPassword: !!record.password,
+		maxConnections: record.maxConnections ?? 10,
+		priority: record.priority ?? 1,
+		enabled: record.enabled ?? true,
+		downloadClientId: record.downloadClientId,
+		autoFetched: record.autoFetched ?? false,
+		lastTestedAt: record.lastTestedAt,
+		testResult: record.testResult,
+		testError: record.testError,
+		createdAt: record.createdAt,
+		updatedAt: record.updatedAt
+	};
+}
+
+class NntpServerService {
+	/**
+	 * Get all NNTP servers (passwords redacted).
+	 */
+	async getServers(): Promise<NntpServerInfo[]> {
+		const records = await db.select().from(nntpServers).orderBy(asc(nntpServers.priority));
+		return records.map(toPublicInfo);
+	}
+
+	/**
+	 * Get a single NNTP server by ID (passwords redacted).
+	 */
+	async getServer(id: string): Promise<NntpServerInfo | null> {
+		const records = await db.select().from(nntpServers).where(eq(nntpServers.id, id));
+		return records.length > 0 ? toPublicInfo(records[0]) : null;
+	}
+
+	/**
+	 * Get server with password (for internal use only).
+	 */
+	async getServerWithPassword(id: string): Promise<NntpServerRecord | null> {
+		const records = await db.select().from(nntpServers).where(eq(nntpServers.id, id));
+		return records.length > 0 ? records[0] : null;
+	}
+
+	/**
+	 * Get all enabled servers ordered by priority (for streaming).
+	 */
+	async getEnabledServers(): Promise<NntpServerRecord[]> {
+		return db
+			.select()
+			.from(nntpServers)
+			.where(eq(nntpServers.enabled, true))
+			.orderBy(asc(nntpServers.priority));
+	}
+
+	/**
+	 * Create a new NNTP server.
+	 */
+	async createServer(input: NntpServerCreate): Promise<NntpServerInfo> {
+		const now = new Date().toISOString();
+		const newServer: NewNntpServerRecord = {
+			id: randomUUID(),
+			name: input.name,
+			host: input.host,
+			port: input.port ?? 563,
+			useSsl: input.useSsl ?? true,
+			username: input.username || null,
+			password: input.password || null,
+			maxConnections: input.maxConnections ?? 10,
+			priority: input.priority ?? 1,
+			enabled: input.enabled ?? true,
+			downloadClientId: input.downloadClientId || null,
+			autoFetched: false,
+			createdAt: now,
+			updatedAt: now
+		};
+
+		const [created] = await db.insert(nntpServers).values(newServer).returning();
+		logger.info('[NntpServerService] Created NNTP server', { id: created.id, name: created.name });
+		return toPublicInfo(created);
+	}
+
+	/**
+	 * Update an NNTP server.
+	 */
+	async updateServer(id: string, input: NntpServerUpdate): Promise<NntpServerInfo | null> {
+		const existing = await this.getServerWithPassword(id);
+		if (!existing) {
+			return null;
+		}
+
+		const updates: Partial<NntpServerRecord> = {
+			updatedAt: new Date().toISOString()
+		};
+
+		if (input.name !== undefined) updates.name = input.name;
+		if (input.host !== undefined) updates.host = input.host;
+		if (input.port !== undefined) updates.port = input.port;
+		if (input.useSsl !== undefined) updates.useSsl = input.useSsl;
+		if (input.username !== undefined) updates.username = input.username || null;
+		if (input.password !== undefined) updates.password = input.password || null;
+		if (input.maxConnections !== undefined) updates.maxConnections = input.maxConnections;
+		if (input.priority !== undefined) updates.priority = input.priority;
+		if (input.enabled !== undefined) updates.enabled = input.enabled;
+		if (input.downloadClientId !== undefined)
+			updates.downloadClientId = input.downloadClientId || null;
+
+		const [updated] = await db
+			.update(nntpServers)
+			.set(updates)
+			.where(eq(nntpServers.id, id))
+			.returning();
+
+		logger.info('[NntpServerService] Updated NNTP server', { id });
+		return toPublicInfo(updated);
+	}
+
+	/**
+	 * Delete an NNTP server.
+	 */
+	async deleteServer(id: string): Promise<boolean> {
+		const result = await db.delete(nntpServers).where(eq(nntpServers.id, id)).returning();
+		const deleted = result.length > 0;
+		if (deleted) {
+			logger.info('[NntpServerService] Deleted NNTP server', { id });
+		}
+		return deleted;
+	}
+
+	/**
+	 * Sync NNTP servers from all Usenet download clients.
+	 * Creates new servers for ones not already synced.
+	 */
+	async syncFromDownloadClients(): Promise<{
+		synced: number;
+		skipped: number;
+		errors: string[];
+	}> {
+		const manager = getDownloadClientManager();
+		const clients = await manager.getEnabledClientsForProtocol('usenet');
+
+		let synced = 0;
+		let skipped = 0;
+		const errors: string[] = [];
+
+		for (const { client, instance } of clients) {
+			if (!instance.getNntpServers) {
+				continue;
+			}
+
+			try {
+				const servers = await instance.getNntpServers();
+				for (const server of servers) {
+					// Check if already exists (by host + downloadClientId)
+					const existing = await db
+						.select()
+						.from(nntpServers)
+						.where(eq(nntpServers.host, server.host))
+						.limit(1);
+
+					if (existing.length > 0) {
+						skipped++;
+						continue;
+					}
+
+					// Create new server record
+					const now = new Date().toISOString();
+					await db.insert(nntpServers).values({
+						id: randomUUID(),
+						name: server.name,
+						host: server.host,
+						port: server.port,
+						useSsl: server.useSsl,
+						username: server.username || null,
+						password: server.password || null,
+						maxConnections: server.maxConnections,
+						priority: server.priority,
+						enabled: server.enabled,
+						downloadClientId: client.id,
+						autoFetched: true,
+						createdAt: now,
+						updatedAt: now
+					});
+					synced++;
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'Unknown error';
+				errors.push(`${client.name}: ${message}`);
+				logger.error('[NntpServerService] Failed to sync from download client', {
+					clientId: client.id,
+					error: message
+				});
+			}
+		}
+
+		logger.info('[NntpServerService] Sync completed', { synced, skipped, errors: errors.length });
+		return { synced, skipped, errors };
+	}
+
+	/**
+	 * Update test result for a server.
+	 */
+	async updateTestResult(id: string, result: 'success' | 'failed', error?: string): Promise<void> {
+		await db
+			.update(nntpServers)
+			.set({
+				lastTestedAt: new Date().toISOString(),
+				testResult: result,
+				testError: error || null,
+				updatedAt: new Date().toISOString()
+			})
+			.where(eq(nntpServers.id, id));
+	}
+}
+
+// Singleton instance
+let instance: NntpServerService | null = null;
+
+export function getNntpServerService(): NntpServerService {
+	if (!instance) {
+		instance = new NntpServerService();
+	}
+	return instance;
+}

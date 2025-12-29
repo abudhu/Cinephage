@@ -844,6 +844,119 @@ export class StrmService {
 			return { success: false, results: [], error: message };
 		}
 	}
+
+	/**
+	 * Create a .strm file pointing to an NZB streaming mount
+	 */
+	async createNzbStrmFile(options: {
+		mountId: string;
+		fileIndex: number;
+		movieId?: string;
+		seriesId?: string;
+		seasonNumber?: number;
+		episodeId?: string;
+		baseUrl: string;
+	}): Promise<StrmCreateResult> {
+		const { mountId, fileIndex, movieId, seriesId, seasonNumber, episodeId, baseUrl } = options;
+
+		try {
+			let destinationPath: string;
+
+			if (movieId) {
+				// Get movie details for folder path
+				const movie = await db.query.movies.findFirst({
+					where: eq(movies.id, movieId),
+					with: { rootFolder: true }
+				});
+
+				if (!movie) {
+					return { success: false, error: `Movie not found: ${movieId}` };
+				}
+				if (!movie.rootFolder) {
+					return { success: false, error: 'Movie has no root folder configured' };
+				}
+
+				const safeName = this.sanitizeFilename(movie.title);
+				const year = movie.year ?? 'Unknown';
+				const rawFolderName = movie.path || `${safeName} (${year})`;
+				const folderName = sanitizePath(rawFolderName);
+
+				if (!isPathSafe(movie.rootFolder.path, folderName)) {
+					return { success: false, error: 'Invalid movie path: path traversal detected' };
+				}
+
+				const movieFolder = join(movie.rootFolder.path, folderName);
+				const filename = `${safeName} (${year}).strm`;
+				destinationPath = join(movieFolder, filename);
+			} else if (seriesId && seasonNumber !== undefined && episodeId) {
+				// Get series and episode details
+				const show = await db.query.series.findFirst({
+					where: eq(series.id, seriesId),
+					with: { rootFolder: true }
+				});
+
+				if (!show) {
+					return { success: false, error: `Series not found: ${seriesId}` };
+				}
+				if (!show.rootFolder) {
+					return { success: false, error: 'Series has no root folder configured' };
+				}
+
+				const episodeRow = await db.query.episodes.findFirst({
+					where: eq(episodes.id, episodeId)
+				});
+
+				if (!episodeRow) {
+					return { success: false, error: `Episode not found: ${episodeId}` };
+				}
+
+				const safeName = this.sanitizeFilename(show.title);
+				const year = show.year ?? 'Unknown';
+				const rawShowPath = show.path || `${safeName} (${year})`;
+				const showPath = sanitizePath(rawShowPath);
+
+				if (!isPathSafe(show.rootFolder.path, showPath)) {
+					return { success: false, error: 'Invalid series path: path traversal detected' };
+				}
+
+				const showFolder = join(show.rootFolder.path, showPath);
+				const seasonFolder = join(showFolder, `Season ${seasonNumber.toString().padStart(2, '0')}`);
+
+				const seasonStr = seasonNumber.toString().padStart(2, '0');
+				const episodeStr = episodeRow.episodeNumber.toString().padStart(2, '0');
+				const episodeTitle = episodeRow.title
+					? ` - ${this.sanitizeFilename(episodeRow.title)}`
+					: '';
+				const filename = `${safeName} - S${seasonStr}E${episodeStr}${episodeTitle}.strm`;
+				destinationPath = join(seasonFolder, filename);
+			} else {
+				return { success: false, error: 'Invalid options for creating NZB .strm file' };
+			}
+
+			// Ensure directory exists
+			const dir = dirname(destinationPath);
+			if (!existsSync(dir)) {
+				mkdirSync(dir, { recursive: true });
+				logger.debug('[StrmService] Created directory', { dir });
+			}
+
+			// Generate NZB streaming URL
+			const content = `${baseUrl}/api/streaming/usenet/${mountId}/${fileIndex}`;
+			writeFileSync(destinationPath, content, 'utf8');
+
+			logger.info('[StrmService] Created NZB .strm file', {
+				path: destinationPath,
+				mountId,
+				fileIndex
+			});
+
+			return { success: true, filePath: destinationPath };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			logger.error('[StrmService] Failed to create NZB .strm file', { error: message });
+			return { success: false, error: message };
+		}
+	}
 }
 
 export const strmService = StrmService.getInstance();

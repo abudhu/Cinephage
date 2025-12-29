@@ -11,150 +11,289 @@
 	import { DownloadClientModal, DownloadClientTable } from '$lib/components/downloadClients';
 	import { ConfirmationModal } from '$lib/components/ui/modal';
 
+	// NNTP server form data type (matches modal)
+	interface NntpServerFormData {
+		name: string;
+		host: string;
+		port: number;
+		useSsl: boolean;
+		username: string | null;
+		password: string | null;
+		maxConnections: number;
+		priority: number;
+		enabled: boolean;
+	}
+
+	// Unified client item for the table
+	interface UnifiedClientItem {
+		id: string;
+		name: string;
+		type: 'download-client' | 'nntp-server';
+		implementation: string;
+		host: string;
+		port: number;
+		useSsl: boolean | null;
+		enabled: boolean | null;
+		username?: string | null;
+		hasPassword?: boolean;
+		// Download client fields
+		movieCategory?: string;
+		tvCategory?: string;
+		recentPriority?: string;
+		olderPriority?: string;
+		initialState?: string;
+		downloadPathLocal?: string | null;
+		// NNTP server fields
+		maxConnections?: number | null;
+		priority?: number | null;
+		testResult?: string | null;
+		lastTestedAt?: string | null;
+	}
+
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// Download Client state
-	let clientModalOpen = $state(false);
-	let clientModalMode = $state<'add' | 'edit'>('add');
-	let editingClient = $state<DownloadClient | null>(null);
-	let clientSaving = $state(false);
-	let confirmClientDeleteOpen = $state(false);
-	let deleteClientTarget = $state<DownloadClient | null>(null);
+	// Unified state
+	let modalOpen = $state(false);
+	let modalMode = $state<'add' | 'edit'>('add');
+	let editingClient = $state<UnifiedClientItem | null>(null);
+	let saving = $state(false);
+	let saveError = $state<string | null>(null);
+	let confirmDeleteOpen = $state(false);
+	let deleteTarget = $state<UnifiedClientItem | null>(null);
+	let testingId = $state<string | null>(null);
 
-	// Client save error state
-	let clientSaveError = $state<string | null>(null);
+	// Create unified client list
+	const unifiedClients = $derived([
+		...data.downloadClients.map(
+			(c): UnifiedClientItem => ({
+				...c,
+				type: 'download-client',
+				implementation: c.implementation
+			})
+		),
+		...data.nntpServers.map(
+			(s): UnifiedClientItem => ({
+				...s,
+				type: 'nntp-server',
+				implementation: 'nntp'
+			})
+		)
+	]);
 
-	// Download Client Functions
-	function openAddClientModal() {
-		clientModalMode = 'add';
+	// Modal Functions
+	function openAddModal() {
+		modalMode = 'add';
 		editingClient = null;
-		clientSaveError = null;
-		clientModalOpen = true;
+		saveError = null;
+		modalOpen = true;
 	}
 
-	function openEditClientModal(client: DownloadClient) {
-		clientModalMode = 'edit';
+	function openEditModal(client: UnifiedClientItem) {
+		modalMode = 'edit';
 		editingClient = client;
-		clientSaveError = null;
-		clientModalOpen = true;
+		saveError = null;
+		modalOpen = true;
 	}
 
-	function closeClientModal() {
-		clientModalOpen = false;
+	function closeModal() {
+		modalOpen = false;
 		editingClient = null;
-		clientSaveError = null;
+		saveError = null;
 	}
 
-	async function handleClientTest(formData: DownloadClientFormData): Promise<ConnectionTestResult> {
+	async function handleTest(
+		formData: DownloadClientFormData | NntpServerFormData,
+		isNntp: boolean
+	): Promise<ConnectionTestResult> {
 		try {
-			const response = await fetch('/api/download-clients/test', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					implementation: formData.implementation,
-					host: formData.host,
-					port: formData.port,
-					useSsl: formData.useSsl,
-					username: formData.username || null,
-					password: formData.password || null
-				})
-			});
-			return await response.json();
+			if (isNntp) {
+				const response = await fetch('/api/usenet/servers/test', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						host: formData.host,
+						port: formData.port,
+						useSsl: formData.useSsl,
+						username: formData.username || null,
+						password: formData.password || null
+					})
+				});
+				const result = await response.json();
+				return {
+					success: result.success,
+					error: result.error,
+					greeting: result.greeting
+				};
+			} else {
+				const dcFormData = formData as DownloadClientFormData;
+				const response = await fetch('/api/download-clients/test', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						implementation: dcFormData.implementation,
+						host: dcFormData.host,
+						port: dcFormData.port,
+						useSsl: dcFormData.useSsl,
+						username: dcFormData.username || null,
+						password: dcFormData.password || null
+					})
+				});
+				return await response.json();
+			}
 		} catch (e) {
 			return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
 		}
 	}
 
-	async function handleClientSave(formData: DownloadClientFormData) {
-		clientSaving = true;
-		clientSaveError = null;
+	async function handleSave(
+		formData: DownloadClientFormData | NntpServerFormData,
+		isNntp: boolean
+	) {
+		saving = true;
+		saveError = null;
 		try {
-			const form = new FormData();
-			form.append('data', JSON.stringify(formData));
+			if (isNntp) {
+				let response: Response;
+				if (modalMode === 'edit' && editingClient) {
+					response = await fetch(`/api/usenet/servers/${editingClient.id}`, {
+						method: 'PUT',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(formData)
+					});
+				} else {
+					response = await fetch('/api/usenet/servers', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(formData)
+					});
+				}
 
-			let response: Response;
-			if (clientModalMode === 'edit' && editingClient) {
-				form.append('id', editingClient.id);
-				response = await fetch(`?/updateDownloadClient`, {
-					method: 'POST',
-					body: form
-				});
+				const result = await response.json();
+				if (!response.ok || result.error) {
+					saveError = result.error || 'Failed to save server';
+					return;
+				}
 			} else {
-				response = await fetch(`?/createDownloadClient`, {
-					method: 'POST',
-					body: form
-				});
-			}
+				const form = new FormData();
+				form.append('data', JSON.stringify(formData));
 
-			// Parse the response to check for errors
-			const result = await response.json();
+				let response: Response;
+				if (modalMode === 'edit' && editingClient) {
+					form.append('id', editingClient.id);
+					response = await fetch(`?/updateDownloadClient`, {
+						method: 'POST',
+						body: form
+					});
+				} else {
+					response = await fetch(`?/createDownloadClient`, {
+						method: 'POST',
+						body: form
+					});
+				}
 
-			// SvelteKit form actions return data in a specific format
-			if (result.type === 'failure' || result.data?.downloadClientError) {
-				const errorMessage = result.data?.downloadClientError || 'Failed to save download client';
-				clientSaveError = errorMessage;
-				return;
+				const result = await response.json();
+				if (result.type === 'failure' || result.data?.downloadClientError) {
+					const errorMessage = result.data?.downloadClientError || 'Failed to save download client';
+					saveError = errorMessage;
+					return;
+				}
 			}
 
 			await invalidateAll();
-			closeClientModal();
+			closeModal();
 		} catch (error) {
-			clientSaveError = error instanceof Error ? error.message : 'An unexpected error occurred';
+			saveError = error instanceof Error ? error.message : 'An unexpected error occurred';
 		} finally {
-			clientSaving = false;
+			saving = false;
 		}
 	}
 
-	async function handleClientDelete() {
+	async function handleDelete() {
 		if (!editingClient) return;
-		const form = new FormData();
-		form.append('id', editingClient.id);
-		await fetch(`?/deleteDownloadClient`, {
-			method: 'POST',
-			body: form
-		});
+
+		if (editingClient.type === 'nntp-server') {
+			await fetch(`/api/usenet/servers/${editingClient.id}`, {
+				method: 'DELETE'
+			});
+		} else {
+			const form = new FormData();
+			form.append('id', editingClient.id);
+			await fetch(`?/deleteDownloadClient`, {
+				method: 'POST',
+				body: form
+			});
+		}
 		await invalidateAll();
-		closeClientModal();
+		closeModal();
 	}
 
-	function confirmClientDelete(client: DownloadClient) {
-		deleteClientTarget = client;
-		confirmClientDeleteOpen = true;
+	function confirmDelete(client: UnifiedClientItem) {
+		deleteTarget = client;
+		confirmDeleteOpen = true;
 	}
 
-	async function handleConfirmClientDelete() {
-		if (!deleteClientTarget) return;
-		const form = new FormData();
-		form.append('id', deleteClientTarget.id);
-		await fetch(`?/deleteDownloadClient`, {
-			method: 'POST',
-			body: form
-		});
+	async function handleConfirmDelete() {
+		if (!deleteTarget) return;
+
+		if (deleteTarget.type === 'nntp-server') {
+			await fetch(`/api/usenet/servers/${deleteTarget.id}`, {
+				method: 'DELETE'
+			});
+		} else {
+			const form = new FormData();
+			form.append('id', deleteTarget.id);
+			await fetch(`?/deleteDownloadClient`, {
+				method: 'POST',
+				body: form
+			});
+		}
 		await invalidateAll();
-		confirmClientDeleteOpen = false;
-		deleteClientTarget = null;
+		confirmDeleteOpen = false;
+		deleteTarget = null;
 	}
 
-	async function handleClientToggle(client: DownloadClient) {
-		const form = new FormData();
-		form.append('id', client.id);
-		form.append('enabled', (!client.enabled).toString());
-		await fetch(`?/toggleDownloadClient`, {
-			method: 'POST',
-			body: form
-		});
+	async function handleToggle(client: UnifiedClientItem) {
+		if (client.type === 'nntp-server') {
+			await fetch(`/api/usenet/servers/${client.id}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ enabled: !client.enabled })
+			});
+		} else {
+			const form = new FormData();
+			form.append('id', client.id);
+			form.append('enabled', (!client.enabled).toString());
+			await fetch(`?/toggleDownloadClient`, {
+				method: 'POST',
+				body: form
+			});
+		}
 		await invalidateAll();
+	}
+
+	async function handleTestFromTable(client: UnifiedClientItem) {
+		if (client.type !== 'nntp-server') return;
+
+		testingId = client.id;
+		try {
+			await fetch(`/api/usenet/servers/${client.id}/test`, {
+				method: 'POST'
+			});
+			await invalidateAll();
+		} finally {
+			testingId = null;
+		}
 	}
 </script>
 
 <div class="w-full p-4">
 	<div class="mb-6">
 		<h1 class="text-2xl font-bold">Download Clients</h1>
-		<p class="text-base-content/70">Configure torrent clients for downloading content.</p>
+		<p class="text-base-content/70">Configure download clients and usenet servers.</p>
 	</div>
 
 	<div class="mb-4 flex items-center justify-end">
-		<button class="btn gap-2 btn-primary" onclick={openAddClientModal}>
+		<button class="btn gap-2 btn-primary" onclick={openAddModal}>
 			<Plus class="h-4 w-4" />
 			Add Client
 		</button>
@@ -175,10 +314,12 @@
 	<div class="card bg-base-100 shadow-xl">
 		<div class="card-body p-0">
 			<DownloadClientTable
-				clients={data.downloadClients}
-				onEdit={openEditClientModal}
-				onDelete={confirmClientDelete}
-				onToggle={handleClientToggle}
+				clients={unifiedClients}
+				onEdit={openEditModal}
+				onDelete={confirmDelete}
+				onToggle={handleToggle}
+				onTest={handleTestFromTable}
+				{testingId}
 			/>
 		</div>
 	</div>
@@ -186,24 +327,24 @@
 
 <!-- Download Client Modal -->
 <DownloadClientModal
-	open={clientModalOpen}
-	mode={clientModalMode}
-	client={editingClient}
-	saving={clientSaving}
-	error={clientSaveError}
-	onClose={closeClientModal}
-	onSave={handleClientSave}
-	onDelete={handleClientDelete}
-	onTest={handleClientTest}
+	open={modalOpen}
+	mode={modalMode}
+	client={editingClient as any}
+	{saving}
+	error={saveError}
+	onClose={closeModal}
+	onSave={handleSave}
+	onDelete={handleDelete}
+	onTest={handleTest}
 />
 
 <!-- Delete Confirmation Modal -->
 <ConfirmationModal
-	open={confirmClientDeleteOpen}
+	open={confirmDeleteOpen}
 	title="Confirm Delete"
-	message="Are you sure you want to delete {deleteClientTarget?.name}? This action cannot be undone."
+	message="Are you sure you want to delete {deleteTarget?.name}? This action cannot be undone."
 	confirmLabel="Delete"
 	confirmVariant="error"
-	onConfirm={handleConfirmClientDelete}
-	onCancel={() => (confirmClientDeleteOpen = false)}
+	onConfirm={handleConfirmDelete}
+	onCancel={() => (confirmDeleteOpen = false)}
 />

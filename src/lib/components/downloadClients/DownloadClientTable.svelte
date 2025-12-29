@@ -1,15 +1,47 @@
 <script lang="ts">
-	import { Settings, Trash2, ToggleLeft, ToggleRight, Server } from 'lucide-svelte';
+	import {
+		Settings,
+		Trash2,
+		ToggleLeft,
+		ToggleRight,
+		Server,
+		FlaskConical,
+		Loader2,
+		CheckCircle2,
+		XCircle
+	} from 'lucide-svelte';
 	import type { DownloadClient } from '$lib/types/downloadClient';
 
-	interface Props {
-		clients: DownloadClient[];
-		onEdit: (client: DownloadClient) => void;
-		onDelete: (client: DownloadClient) => void;
-		onToggle: (client: DownloadClient) => void;
+	// Unified client item that can be either a download client or NNTP server
+	interface UnifiedClientItem {
+		id: string;
+		name: string;
+		type: 'download-client' | 'nntp-server';
+		implementation: string;
+		host: string;
+		port: number;
+		useSsl: boolean | null;
+		enabled: boolean | null;
+		// Download client fields
+		movieCategory?: string;
+		tvCategory?: string;
+		// NNTP server fields
+		maxConnections?: number | null;
+		priority?: number | null;
+		testResult?: string | null;
+		lastTestedAt?: string | null;
 	}
 
-	let { clients, onEdit, onDelete, onToggle }: Props = $props();
+	interface Props {
+		clients: UnifiedClientItem[];
+		onEdit: (client: UnifiedClientItem) => void;
+		onDelete: (client: UnifiedClientItem) => void;
+		onToggle: (client: UnifiedClientItem) => void;
+		onTest?: (client: UnifiedClientItem) => Promise<void>;
+		testingId?: string | null;
+	}
+
+	let { clients, onEdit, onDelete, onToggle, onTest, testingId = null }: Props = $props();
 </script>
 
 {#if clients.length === 0}
@@ -25,7 +57,8 @@
 				<tr>
 					<th>Name</th>
 					<th>Host</th>
-					<th>Categories</th>
+					<th>Details</th>
+					<th>Test</th>
 					<th>Status</th>
 					<th class="text-right">Actions</th>
 				</tr>
@@ -37,27 +70,73 @@
 							<div class="flex items-center gap-3">
 								<div class="placeholder avatar">
 									<div
-										class="flex h-10 w-10 items-center justify-center rounded-full bg-neutral text-neutral-content"
+										class="flex h-10 w-10 items-center justify-center rounded-full {client.type ===
+										'nntp-server'
+											? 'bg-secondary text-secondary-content'
+											: 'bg-neutral text-neutral-content'}"
 									>
-										<span class="text-xs uppercase">{client.implementation.slice(0, 2)}</span>
+										{#if client.type === 'nntp-server'}
+											<Server class="h-5 w-5" />
+										{:else}
+											<span class="text-xs uppercase">{client.implementation.slice(0, 2)}</span>
+										{/if}
 									</div>
 								</div>
 								<div>
 									<div class="font-bold">{client.name}</div>
-									<div class="text-sm capitalize opacity-50">{client.implementation}</div>
+									<div class="text-sm capitalize opacity-50">
+										{client.type === 'nntp-server' ? 'NNTP Server' : client.implementation}
+									</div>
 								</div>
 							</div>
 						</td>
 						<td>
 							<div class="font-mono text-sm">
-								{client.useSsl ? 'https' : 'http'}://{client.host}:{client.port}
+								{#if client.type === 'nntp-server'}
+									{client.useSsl ? 'nntps' : 'nntp'}://{client.host}:{client.port}
+								{:else}
+									{client.useSsl ? 'https' : 'http'}://{client.host}:{client.port}
+								{/if}
 							</div>
 						</td>
 						<td>
-							<div class="flex flex-col gap-1">
-								<span class="badge badge-ghost badge-sm">Movies: {client.movieCategory}</span>
-								<span class="badge badge-ghost badge-sm">TV: {client.tvCategory}</span>
-							</div>
+							{#if client.type === 'nntp-server'}
+								<div class="flex flex-col gap-1">
+									<span class="badge badge-ghost badge-sm"
+										>Connections: {client.maxConnections ?? 10}</span
+									>
+									<span class="badge badge-outline badge-sm">Priority: {client.priority ?? 1}</span>
+								</div>
+							{:else}
+								<div class="flex flex-col gap-1">
+									<span class="badge badge-ghost badge-sm">Movies: {client.movieCategory}</span>
+									<span class="badge badge-ghost badge-sm">TV: {client.tvCategory}</span>
+								</div>
+							{/if}
+						</td>
+						<td>
+							{#if client.type === 'nntp-server'}
+								{#if testingId === client.id}
+									<span class="badge gap-1 badge-ghost badge-sm">
+										<Loader2 class="h-3 w-3 animate-spin" />
+										Testing
+									</span>
+								{:else if client.testResult === 'success'}
+									<span class="badge gap-1 badge-sm badge-success">
+										<CheckCircle2 class="h-3 w-3" />
+										OK
+									</span>
+								{:else if client.testResult === 'failed'}
+									<span class="badge gap-1 badge-sm badge-error">
+										<XCircle class="h-3 w-3" />
+										Failed
+									</span>
+								{:else}
+									<span class="badge badge-ghost badge-sm">-</span>
+								{/if}
+							{:else}
+								<span class="badge badge-ghost badge-sm">-</span>
+							{/if}
 						</td>
 						<td>
 							<span class="badge {client.enabled ? 'badge-success' : 'badge-ghost'}">
@@ -66,6 +145,20 @@
 						</td>
 						<td>
 							<div class="flex justify-end gap-1">
+								{#if client.type === 'nntp-server' && onTest}
+									<button
+										class="btn btn-ghost btn-sm"
+										onclick={() => onTest(client)}
+										title="Test connection"
+										disabled={testingId === client.id}
+									>
+										{#if testingId === client.id}
+											<Loader2 class="h-4 w-4 animate-spin" />
+										{:else}
+											<FlaskConical class="h-4 w-4" />
+										{/if}
+									</button>
+								{/if}
 								<button
 									class="btn btn-ghost btn-sm"
 									onclick={() => onToggle(client)}

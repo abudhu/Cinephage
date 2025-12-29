@@ -4,7 +4,8 @@ import type {
 	DownloadClientConfig,
 	AddDownloadOptions,
 	DownloadInfo,
-	ConnectionTestResult
+	ConnectionTestResult,
+	NntpServerConfig
 } from '$lib/server/downloadClients/core/interfaces';
 import type { JsonRpcResponse, NzbgetGroup, NzbgetHistory, NzbgetStatus } from './types';
 
@@ -297,6 +298,59 @@ export class NZBGetClient implements IDownloadClient {
 	async ensureCategory(_name: string, _savePath?: string): Promise<void> {
 		// NZBGet config is complex to update via API, strict implementation skipped for MVP
 		return;
+	}
+
+	/**
+	 * Get NNTP server configurations from NZBGet.
+	 * NZBGet stores servers as Server1.Host, Server1.Port, Server1.Username, etc.
+	 */
+	async getNntpServers(): Promise<NntpServerConfig[]> {
+		try {
+			const configMap = await this.request<Record<string, string>>('config');
+			const servers: NntpServerConfig[] = [];
+
+			// Find all unique server indices (Server1, Server2, etc.)
+			const serverIndices = new Set<number>();
+			for (const key of Object.keys(configMap)) {
+				const match = key.match(/^Server(\d+)\./);
+				if (match) {
+					serverIndices.add(parseInt(match[1], 10));
+				}
+			}
+
+			// Parse each server's configuration
+			for (const idx of Array.from(serverIndices).sort((a, b) => a - b)) {
+				const prefix = `Server${idx}`;
+				const host = configMap[`${prefix}.Host`];
+
+				// Skip if no host configured
+				if (!host) continue;
+
+				// Parse encryption setting (0=none, 1=TLS, 2=TLS forced)
+				const encryption = parseInt(configMap[`${prefix}.Encryption`] || '0', 10);
+
+				servers.push({
+					name: configMap[`${prefix}.Name`] || `Server ${idx}`,
+					host,
+					port: parseInt(configMap[`${prefix}.Port`] || '563', 10),
+					useSsl: encryption > 0,
+					username: configMap[`${prefix}.Username`] || undefined,
+					password: configMap[`${prefix}.Password`] || undefined,
+					maxConnections: parseInt(configMap[`${prefix}.Connections`] || '8', 10),
+					// Level is priority (0 = main, higher = backup)
+					priority: parseInt(configMap[`${prefix}.Level`] || '0', 10),
+					enabled: configMap[`${prefix}.Active`] === 'yes'
+				});
+			}
+
+			logger.info('[NZBGet] Fetched NNTP servers', { count: servers.length });
+			return servers;
+		} catch (error) {
+			logger.error('[NZBGet] Failed to fetch NNTP servers', {
+				error: error instanceof Error ? error.message : 'Unknown error'
+			});
+			return [];
+		}
 	}
 
 	private mapPriority(priority?: 'normal' | 'high' | 'force'): number {

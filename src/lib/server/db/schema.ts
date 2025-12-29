@@ -2028,6 +2028,166 @@ export type StreamExtractionCacheRecord = typeof streamExtractionCache.$inferSel
 export type NewStreamExtractionCacheRecord = typeof streamExtractionCache.$inferInsert;
 
 // ============================================================================
+// NZB STREAMING TABLES
+// ============================================================================
+
+/**
+ * NNTP Servers - Configuration for Usenet news server connections
+ * Used for direct NZB streaming without download clients
+ */
+export const nntpServers = sqliteTable(
+	'nntp_servers',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => randomUUID()),
+		name: text('name').notNull(),
+		host: text('host').notNull(),
+		port: integer('port').notNull().default(563),
+		useSsl: integer('use_ssl', { mode: 'boolean' }).default(true),
+		username: text('username'),
+		password: text('password'),
+		maxConnections: integer('max_connections').default(10),
+		// Priority for server selection (lower = try first)
+		priority: integer('priority').default(1),
+		enabled: integer('enabled', { mode: 'boolean' }).default(true),
+		// Optional link to download client for auto-fetch
+		downloadClientId: text('download_client_id').references(() => downloadClients.id, {
+			onDelete: 'set null'
+		}),
+		// Whether this was auto-fetched from SABnzbd/NZBGet
+		autoFetched: integer('auto_fetched', { mode: 'boolean' }).default(false),
+		// Connection testing
+		lastTestedAt: text('last_tested_at'),
+		testResult: text('test_result'), // 'success' | 'failed' | null
+		testError: text('test_error'),
+		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
+		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
+	},
+	(table) => [
+		index('idx_nntp_servers_enabled').on(table.enabled),
+		index('idx_nntp_servers_priority').on(table.priority),
+		index('idx_nntp_servers_download_client').on(table.downloadClientId)
+	]
+);
+
+export type NntpServerRecord = typeof nntpServers.$inferSelect;
+export type NewNntpServerRecord = typeof nntpServers.$inferInsert;
+
+/**
+ * NZB Stream Mounts - Active NZB streaming sessions
+ * Stores parsed NZB metadata for streaming without downloads
+ */
+export const nzbStreamMounts = sqliteTable(
+	'nzb_stream_mounts',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => randomUUID()),
+		// Unique hash of NZB content for deduplication
+		nzbHash: text('nzb_hash').notNull().unique(),
+		title: text('title').notNull(),
+		// Source info
+		indexerId: text('indexer_id').references(() => indexers.id, { onDelete: 'set null' }),
+		releaseGuid: text('release_guid'),
+		downloadUrl: text('download_url'),
+		// Media linkage (at least one should be set)
+		movieId: text('movie_id').references(() => movies.id, { onDelete: 'cascade' }),
+		seriesId: text('series_id').references(() => series.id, { onDelete: 'cascade' }),
+		seasonNumber: integer('season_number'),
+		episodeIds: text('episode_ids', { mode: 'json' }).$type<string[]>(),
+		// NZB metadata (cached parsing results)
+		fileCount: integer('file_count').notNull(),
+		totalSize: integer('total_size').notNull(),
+		// Parsed media files with segment info
+		mediaFiles: text('media_files', { mode: 'json' })
+			.$type<
+				Array<{
+					index: number;
+					name: string;
+					size: number;
+					isRar: boolean;
+					segments: Array<{
+						messageId: string;
+						bytes: number;
+						number: number;
+					}>;
+					groups: string[];
+				}>
+			>()
+			.notNull(),
+		// RAR info if applicable
+		rarInfo: text('rar_info', { mode: 'json' }).$type<{
+			isMultiPart: boolean;
+			isEncrypted: boolean;
+			compressionMethod: number;
+			format: 'rar4' | 'rar5';
+			innerFiles: Array<{
+				name: string;
+				size: number;
+				dataOffset: number;
+			}>;
+		}>(),
+		// RAR password if needed (encrypted)
+		password: text('password'),
+		// Stream state
+		status: text('status', { enum: ['pending', 'parsing', 'ready', 'error', 'expired'] })
+			.notNull()
+			.default('pending'),
+		errorMessage: text('error_message'),
+		// Usage tracking
+		lastAccessedAt: text('last_accessed_at'),
+		accessCount: integer('access_count').default(0),
+		// Expiration for cleanup
+		expiresAt: text('expires_at'),
+		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
+		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
+	},
+	(table) => [
+		index('idx_nzb_mounts_status').on(table.status),
+		index('idx_nzb_mounts_movie').on(table.movieId),
+		index('idx_nzb_mounts_series').on(table.seriesId),
+		index('idx_nzb_mounts_expires').on(table.expiresAt),
+		index('idx_nzb_mounts_hash').on(table.nzbHash)
+	]
+);
+
+export type NzbStreamMountRecord = typeof nzbStreamMounts.$inferSelect;
+export type NewNzbStreamMountRecord = typeof nzbStreamMounts.$inferInsert;
+
+// ============================================================================
+// NZB STREAMING RELATIONS
+// ============================================================================
+
+/**
+ * NNTP Servers Relations
+ */
+export const nntpServersRelations = relations(nntpServers, ({ one }) => ({
+	downloadClient: one(downloadClients, {
+		fields: [nntpServers.downloadClientId],
+		references: [downloadClients.id]
+	})
+}));
+
+/**
+ * NZB Stream Mounts Relations
+ */
+export const nzbStreamMountsRelations = relations(nzbStreamMounts, ({ one }) => ({
+	indexer: one(indexers, {
+		fields: [nzbStreamMounts.indexerId],
+		references: [indexers.id]
+	}),
+	movie: one(movies, {
+		fields: [nzbStreamMounts.movieId],
+		references: [movies.id]
+	}),
+	series: one(series, {
+		fields: [nzbStreamMounts.seriesId],
+		references: [series.id]
+	})
+}));
+
+// ============================================================================
 // SMART LISTS RELATIONS
 // ============================================================================
 

@@ -97,7 +97,10 @@
 		episode?: number;
 		searchMode?: SearchMode;
 		onClose: () => void;
-		onGrab: (release: Release) => Promise<{ success: boolean; error?: string }>;
+		onGrab: (
+			release: Release,
+			streaming?: boolean
+		) => Promise<{ success: boolean; error?: string }>;
 	}
 
 	let {
@@ -122,6 +125,7 @@
 	let searchError = $state<string | null>(null);
 	let grabbingIds = new SvelteSet<string>();
 	let grabbedIds = new SvelteSet<string>();
+	let streamingIds = new SvelteSet<string>();
 	let grabErrors = new SvelteMap<string, string>();
 	let searchTriggered = $state(false);
 
@@ -216,6 +220,7 @@
 			searchError = null;
 			grabbingIds.clear();
 			grabbedIds.clear();
+			streamingIds.clear();
 			grabErrors.clear();
 			filterQuery = '';
 			searchTriggered = false;
@@ -261,12 +266,15 @@
 		}
 	}
 
-	async function handleGrab(release: Release) {
+	async function handleGrab(release: Release, streaming?: boolean) {
 		grabbingIds.add(release.guid);
+		if (streaming) {
+			streamingIds.add(release.guid);
+		}
 		grabErrors.delete(release.guid);
 
 		try {
-			const result = await onGrab(release);
+			const result = await onGrab(release, streaming);
 			if (result.success) {
 				grabbedIds.add(release.guid);
 			} else {
@@ -276,6 +284,7 @@
 			grabErrors.set(release.guid, err instanceof Error ? err.message : 'Failed');
 		} finally {
 			grabbingIds.delete(release.guid);
+			streamingIds.delete(release.guid);
 		}
 	}
 
@@ -503,6 +512,7 @@
 									onGrab={handleGrab}
 									grabbing={grabbingIds.has(release.guid)}
 									grabbed={grabbedIds.has(release.guid)}
+									streaming={streamingIds.has(release.guid)}
 									error={grabErrors.get(release.guid)}
 								/>
 							{/each}

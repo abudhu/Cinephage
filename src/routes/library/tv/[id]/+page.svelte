@@ -779,7 +779,10 @@
 		return ids;
 	}
 
-	async function handleGrab(release: Release): Promise<{ success: boolean; error?: string }> {
+	async function handleGrab(
+		release: Release,
+		streaming?: boolean
+	): Promise<{ success: boolean; error?: string }> {
 		try {
 			// Determine season/episode info from release metadata
 			const episodeMatch = release.episodeMatch || release.parsed?.episode;
@@ -823,14 +826,15 @@
 					seriesId: data.series.id,
 					mediaType: 'tv',
 					seasonNumber,
-					episodeIds
+					episodeIds,
+					streamUsenet: streaming && release.protocol === 'usenet'
 				})
 			});
 
 			const result = await response.json();
 
 			// For streaming grabs, refresh the page since files are created instantly
-			if (result.success && release.protocol === 'streaming') {
+			if (result.success && (release.protocol === 'streaming' || streaming)) {
 				setTimeout(() => window.location.reload(), 500);
 			}
 

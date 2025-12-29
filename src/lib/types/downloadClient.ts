@@ -9,7 +9,8 @@ export type DownloadClientImplementation =
 	| 'rtorrent'
 	| 'aria2'
 	| 'sabnzbd'
-	| 'nzbget';
+	| 'nzbget'
+	| 'nntp';
 export type DownloadPriority = 'normal' | 'high' | 'force';
 export type DownloadInitialState = 'start' | 'pause' | 'force';
 export type RootFolderMediaType = 'movie' | 'tv';
@@ -22,7 +23,7 @@ export interface DownloadClientDefinition {
 	name: string;
 	description: string;
 	defaultPort: number;
-	protocol: 'torrent' | 'usenet';
+	protocol: 'torrent' | 'usenet' | 'nntp';
 	supportsCategories: boolean;
 	supportsPriority: boolean;
 	supportsSeedingLimits: boolean;
@@ -127,6 +128,8 @@ export interface ConnectionTestResult {
 	success: boolean;
 	error?: string;
 	warnings?: string[];
+	// NNTP server greeting (for NNTP connections)
+	greeting?: string;
 	details?: {
 		version?: string;
 		apiVersion?: string;

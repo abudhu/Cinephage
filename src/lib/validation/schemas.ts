@@ -704,3 +704,44 @@ export type MultiEpisodeStyle = z.infer<typeof multiEpisodeStyleSchema>;
 export type ColonReplacement = z.infer<typeof colonReplacementSchema>;
 export type MediaServerIdFormat = z.infer<typeof mediaServerIdFormatSchema>;
 export type NamingConfigUpdate = z.infer<typeof namingConfigUpdateSchema>;
+
+// ============================================================
+// NNTP Server Schemas (for NZB streaming)
+// ============================================================
+
+/**
+ * Schema for creating an NNTP server.
+ */
+export const nntpServerCreateSchema = z.object({
+	name: z.string().min(1, 'Name is required').max(100, 'Name must be 100 characters or less'),
+	host: z.string().min(1, 'Host is required'),
+	port: z.number().int().min(1).max(65535).default(563),
+	useSsl: z.boolean().default(true),
+	username: z.string().optional().nullable(),
+	password: z.string().optional().nullable(),
+	maxConnections: z.number().int().min(1).max(50).default(10),
+	priority: z.number().int().min(0).max(99).default(1),
+	enabled: z.boolean().default(true),
+	downloadClientId: z.string().uuid().optional().nullable()
+});
+
+/**
+ * Schema for updating an NNTP server.
+ */
+export const nntpServerUpdateSchema = nntpServerCreateSchema.partial();
+
+/**
+ * Schema for testing NNTP connection.
+ */
+export const nntpServerTestSchema = z.object({
+	host: z.string().min(1, 'Host is required'),
+	port: z.number().int().min(1).max(65535),
+	useSsl: z.boolean().default(true),
+	username: z.string().optional().nullable(),
+	password: z.string().optional().nullable()
+});
+
+// NNTP Server Type Exports
+export type NntpServerCreate = z.infer<typeof nntpServerCreateSchema>;
+export type NntpServerUpdate = z.infer<typeof nntpServerUpdateSchema>;
+export type NntpServerTest = z.infer<typeof nntpServerTestSchema>;

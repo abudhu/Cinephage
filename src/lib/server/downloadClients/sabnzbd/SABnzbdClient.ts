@@ -8,7 +8,8 @@ import type {
 	IDownloadClient,
 	DownloadClientConfig,
 	AddDownloadOptions,
-	DownloadInfo
+	DownloadInfo,
+	NntpServerConfig
 } from '../core/interfaces';
 import type { ConnectionTestResult } from '$lib/types/downloadClient';
 import { SABnzbdProxy, SabnzbdApiError } from './SABnzbdProxy';
@@ -326,6 +327,52 @@ export class SABnzbdClient implements IDownloadClient {
 		} catch (error) {
 			logger.error('[SABnzbd] Failed to check category', { name, error });
 			throw error;
+		}
+	}
+
+	/**
+	 * Get NNTP server configurations from SABnzbd.
+	 * Note: SABnzbd masks passwords in the API response.
+	 * Users must enter passwords manually in Cinephage settings.
+	 */
+	async getNntpServers(): Promise<NntpServerConfig[]> {
+		try {
+			const config = await this.proxy.getConfig();
+			const servers: NntpServerConfig[] = [];
+
+			if (config.servers) {
+				for (let i = 0; i < config.servers.length; i++) {
+					const server = config.servers[i];
+
+					// Skip if no host configured
+					if (!server.host) continue;
+
+					servers.push({
+						name: server.name || `Server ${i + 1}`,
+						host: server.host,
+						port: server.port || 563,
+						useSsl: server.ssl ?? true,
+						// SABnzbd masks passwords - user must enter manually
+						username: undefined,
+						password: undefined,
+						maxConnections: server.connections || 8,
+						// Use array index as priority (first server = highest priority)
+						priority: i,
+						enabled: server.enable ?? true
+					});
+				}
+			}
+
+			logger.info('[SABnzbd] Fetched NNTP servers', {
+				count: servers.length,
+				note: 'Passwords masked by SABnzbd API - user must enter manually'
+			});
+			return servers;
+		} catch (error) {
+			logger.error('[SABnzbd] Failed to fetch NNTP servers', {
+				error: error instanceof Error ? error.message : 'Unknown error'
+			});
+			return [];
 		}
 	}
 

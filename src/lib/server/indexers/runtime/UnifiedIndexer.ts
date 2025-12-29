@@ -628,6 +628,51 @@ export class UnifiedIndexer implements IIndexer {
 	}
 
 	/**
+	 * Reconstruct a download URL that was redacted for security.
+	 * This restores the API key from indexer settings when the URL contains [REDACTED].
+	 * Handles both plain [REDACTED] and URL-encoded %5BREDACTED%5D.
+	 *
+	 * @param redactedUrl - The URL that may contain [REDACTED] placeholders
+	 * @returns The reconstructed URL with proper API key, or the original if not redacted
+	 */
+	reconstructDownloadUrl(redactedUrl: string): string {
+		// Check for both plain [REDACTED] and URL-encoded %5BREDACTED%5D
+		const hasRedacted =
+			redactedUrl && (redactedUrl.includes('[REDACTED]') || redactedUrl.includes('%5BREDACTED%5D'));
+
+		if (!hasRedacted) {
+			return redactedUrl;
+		}
+
+		const apikey = this.settings.apikey;
+		if (!apikey || typeof apikey !== 'string') {
+			this.log.warn('Cannot reconstruct URL: no API key in settings');
+			return redactedUrl;
+		}
+
+		// For newznab-style indexers, the URL format is:
+		// {baseUrl}/api?t=get&id={guid}&apikey={apikey}
+		// Extract the ID and reconstruct
+		const idMatch = redactedUrl.match(/[?&]id=([^&]+)/);
+		if (idMatch) {
+			const baseUrl = this.requestBuilder.getBaseUrl();
+			const reconstructed = `${baseUrl}/api?t=get&id=${idMatch[1]}&apikey=${apikey}`;
+			this.log.debug('Reconstructed redacted download URL', {
+				original: redactedUrl.substring(0, 50) + '...',
+				hasApiKey: true
+			});
+			return reconstructed;
+		}
+
+		// Fallback: try to replace [REDACTED] or %5BREDACTED%5D with actual apikey
+		const reconstructed = redactedUrl
+			.replace(/\[REDACTED\]/g, apikey)
+			.replace(/%5BREDACTED%5D/gi, apikey);
+		this.log.debug('Replaced [REDACTED] in URL with API key');
+		return reconstructed;
+	}
+
+	/**
 	 * Download a torrent/NZB file from the indexer
 	 */
 	async downloadTorrent(url: string): Promise<IndexerDownloadResult> {

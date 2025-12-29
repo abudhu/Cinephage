@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Download, ExternalLink, Loader2, Check, X } from 'lucide-svelte';
+	import { Download, ExternalLink, Loader2, Check, X, Play } from 'lucide-svelte';
 
 	interface Release {
 		guid: string;
@@ -34,13 +34,21 @@
 
 	interface Props {
 		release: Release;
-		onGrab: (release: Release) => Promise<void>;
+		onGrab: (release: Release, streaming?: boolean) => Promise<void>;
 		grabbing?: boolean;
 		grabbed?: boolean;
 		error?: string | null;
+		streaming?: boolean;
 	}
 
-	let { release, onGrab, grabbing = false, grabbed = false, error = null }: Props = $props();
+	let {
+		release,
+		onGrab,
+		grabbing = false,
+		grabbed = false,
+		error = null,
+		streaming = false
+	}: Props = $props();
 
 	function formatBytes(bytes: number): string {
 		if (bytes === 0) return '0 B';
@@ -74,7 +82,11 @@
 	}
 
 	async function handleGrab() {
-		await onGrab(release);
+		await onGrab(release, false);
+	}
+
+	async function handleStream() {
+		await onGrab(release, true);
 	}
 </script>
 
@@ -170,10 +182,25 @@
 					<X size={16} />
 				</span>
 			{:else}
+				{#if release.protocol === 'usenet'}
+					<!-- Stream button for usenet releases -->
+					<button
+						class="btn btn-sm btn-accent"
+						onclick={handleStream}
+						disabled={grabbing || streaming || release.rejected}
+						title={release.rejected ? 'Rejected by quality filter' : 'Stream (NNTP)'}
+					>
+						{#if streaming}
+							<Loader2 size={16} class="animate-spin" />
+						{:else}
+							<Play size={16} />
+						{/if}
+					</button>
+				{/if}
 				<button
 					class="btn btn-sm btn-primary"
 					onclick={handleGrab}
-					disabled={grabbing || release.rejected}
+					disabled={grabbing || streaming || release.rejected}
 					title={release.rejected ? 'Rejected by quality filter' : 'Download'}
 				>
 					{#if grabbing}

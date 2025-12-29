@@ -1,0 +1,74 @@
+/**
+ * GET /api/usenet/servers/:id - Get a specific NNTP server
+ * PUT /api/usenet/servers/:id - Update an NNTP server
+ * DELETE /api/usenet/servers/:id - Delete an NNTP server
+ */
+
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { getNntpServerService } from '$lib/server/streaming/nzb/NntpServerService';
+import { nntpServerUpdateSchema } from '$lib/validation/schemas';
+
+/**
+ * GET /api/usenet/servers/:id
+ * Get a specific NNTP server by ID.
+ */
+export const GET: RequestHandler = async ({ params }) => {
+	const service = getNntpServerService();
+	const server = await service.getServer(params.id);
+
+	if (!server) {
+		return json({ error: 'Server not found' }, { status: 404 });
+	}
+
+	return json(server);
+};
+
+/**
+ * PUT /api/usenet/servers/:id
+ * Update an existing NNTP server.
+ */
+export const PUT: RequestHandler = async ({ params, request }) => {
+	let data: unknown;
+	try {
+		data = await request.json();
+	} catch {
+		return json({ error: 'Invalid JSON body' }, { status: 400 });
+	}
+
+	const result = nntpServerUpdateSchema.safeParse(data);
+
+	if (!result.success) {
+		return json(
+			{
+				error: 'Validation failed',
+				details: result.error.flatten()
+			},
+			{ status: 400 }
+		);
+	}
+
+	const service = getNntpServerService();
+	const updated = await service.updateServer(params.id, result.data);
+
+	if (!updated) {
+		return json({ error: 'Server not found' }, { status: 404 });
+	}
+
+	return json({ success: true, server: updated });
+};
+
+/**
+ * DELETE /api/usenet/servers/:id
+ * Delete an NNTP server.
+ */
+export const DELETE: RequestHandler = async ({ params }) => {
+	const service = getNntpServerService();
+	const deleted = await service.deleteServer(params.id);
+
+	if (!deleted) {
+		return json({ error: 'Server not found' }, { status: 404 });
+	}
+
+	return json({ success: true });
+};

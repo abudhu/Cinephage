@@ -83,19 +83,57 @@
 			supportsCategories: true,
 			supportsPriority: true,
 			supportsSeedingLimits: false
+		},
+		// Direct NNTP
+		{
+			id: 'nntp',
+			name: 'NNTP Server',
+			description: 'Direct Usenet server connection for NZB streaming',
+			defaultPort: 563,
+			protocol: 'nntp',
+			supportsCategories: false,
+			supportsPriority: false,
+			supportsSeedingLimits: false
 		}
 	];
+
+	// NNTP server form data type
+	interface NntpServerFormData {
+		name: string;
+		host: string;
+		port: number;
+		useSsl: boolean;
+		username: string | null;
+		password: string | null;
+		maxConnections: number;
+		priority: number;
+		enabled: boolean;
+	}
+
+	// NNTP server type for editing
+	interface NntpServer {
+		id: string;
+		name: string;
+		host: string;
+		port: number;
+		useSsl: boolean | null;
+		username: string | null;
+		hasPassword?: boolean;
+		maxConnections: number | null;
+		priority: number | null;
+		enabled: boolean | null;
+	}
 
 	interface Props {
 		open: boolean;
 		mode: 'add' | 'edit';
-		client?: DownloadClient | null;
+		client?: DownloadClient | NntpServer | null;
 		saving: boolean;
 		error?: string | null;
 		onClose: () => void;
-		onSave: (data: DownloadClientFormData) => void;
+		onSave: (data: DownloadClientFormData | NntpServerFormData, isNntp: boolean) => void;
 		onDelete?: () => void;
-		onTest: (data: DownloadClientFormData) => Promise<ConnectionTestResult>;
+		onTest: (data: DownloadClientFormData | NntpServerFormData, isNntp: boolean) => Promise<ConnectionTestResult>;
 	}
 
 	let {
@@ -137,6 +175,9 @@
 	// Form state - Priority order
 	let priority = $state(1);
 
+	// Form state - NNTP specific
+	let maxConnections = $state(10);
+
 	// UI state
 	let testing = $state(false);
 	let testResult = $state<ConnectionTestResult | null>(null);
@@ -152,42 +193,86 @@
 	const usesApiKey = $derived(
 		selectedDefinition?.protocol === 'usenet' && selectedDefinition?.id === 'sabnzbd'
 	);
+	// Check if this is an NNTP server
+	const isNntpServer = $derived(implementation === 'nntp');
 
 	// Reset form when modal opens or client changes
 	$effect(() => {
 		if (open) {
-			implementation = client?.implementation ?? '';
+			// Check if editing an NNTP server (has maxConnections but no movieCategory)
+			const isNntpEdit = client && 'maxConnections' in client && !('movieCategory' in client);
+			implementation = isNntpEdit ? 'nntp' : (client as DownloadClient)?.implementation ?? '';
 			name = client?.name ?? '';
 			enabled = client?.enabled ?? true;
 			host = client?.host ?? 'localhost';
-			port = client?.port ?? 8080;
-			useSsl = client?.useSsl ?? false;
+			port = client?.port ?? (isNntpEdit ? 563 : 8080);
+			useSsl = client?.useSsl ?? (isNntpEdit ? true : false);
 			username = client?.username ?? '';
 			password = '';
-			movieCategory = client?.movieCategory ?? 'movies';
-			tvCategory = client?.tvCategory ?? 'tv';
-			recentPriority = client?.recentPriority ?? 'normal';
-			olderPriority = client?.olderPriority ?? 'normal';
-			initialState = client?.initialState ?? 'start';
-			downloadPathLocal = client?.downloadPathLocal ?? '';
+
+			// Download client fields
+			const dcClient = client as DownloadClient | undefined;
+			movieCategory = dcClient?.movieCategory ?? 'movies';
+			tvCategory = dcClient?.tvCategory ?? 'tv';
+			recentPriority = dcClient?.recentPriority ?? 'normal';
+			olderPriority = dcClient?.olderPriority ?? 'normal';
+			initialState = dcClient?.initialState ?? 'start';
+			downloadPathLocal = dcClient?.downloadPathLocal ?? '';
+
+			// NNTP-specific fields
+			const nntpClient = client as NntpServer | undefined;
+			maxConnections = nntpClient?.maxConnections ?? 10;
+
+			// Priority (used by both types)
 			priority = client?.priority ?? 1;
+
 			testResult = null;
 			showFolderBrowser = false;
 		}
 	});
 
-	function handleImplementationChange(newImpl: DownloadClientImplementation) {
-		implementation = newImpl;
+	function handleImplementationChange(newImpl: DownloadClientImplementation | 'nntp') {
+		implementation = newImpl as DownloadClientImplementation;
 		if (mode === 'add') {
 			const def = clientDefinitions.find((d) => d.id === newImpl);
 			if (def) {
 				port = def.defaultPort;
 				name = def.name;
+				// NNTP defaults to SSL on
+				if (newImpl === 'nntp') {
+					useSsl = true;
+				}
 			}
 		}
 	}
 
-	function getFormData(): DownloadClientFormData {
+	// Auto-update port when SSL changes for NNTP
+	function handleSslChange() {
+		if (isNntpServer && mode === 'add') {
+			port = useSsl ? 563 : 119;
+		}
+	}
+
+	function getFormData(): DownloadClientFormData | NntpServerFormData {
+		if (isNntpServer) {
+			const data: NntpServerFormData = {
+				name,
+				host,
+				port,
+				useSsl,
+				username: username || null,
+				password: password || null,
+				maxConnections,
+				priority,
+				enabled
+			};
+			// In edit mode, only include password if user actually typed something new
+			if (mode === 'edit' && !password) {
+				delete (data as unknown as Record<string, unknown>).password;
+			}
+			return data;
+		}
+
 		return {
 			name,
 			implementation: implementation as DownloadClientImplementation,
@@ -213,14 +298,14 @@
 		testing = true;
 		testResult = null;
 		try {
-			testResult = await onTest(getFormData());
+			testResult = await onTest(getFormData(), isNntpServer);
 		} finally {
 			testing = false;
 		}
 	}
 
 	function handleSave() {
-		onSave(getFormData());
+		onSave(getFormData(), isNntpServer);
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -430,7 +515,12 @@
 
 							<div class="flex gap-4">
 								<label class="label cursor-pointer gap-2">
-									<input type="checkbox" class="checkbox checkbox-sm" bind:checked={useSsl} />
+									<input
+										type="checkbox"
+										class="checkbox checkbox-sm"
+										bind:checked={useSsl}
+										onchange={handleSslChange}
+									/>
 									<span class="label-text">Use SSL</span>
 								</label>
 
@@ -443,6 +533,48 @@
 
 						<!-- Right Column: Settings -->
 						<div class="space-y-4">
+							<!-- NNTP Server Settings -->
+							{#if isNntpServer}
+								<SectionHeader title="Server Settings" />
+
+								<div class="form-control">
+									<label class="label py-1" for="maxConnections">
+										<span class="label-text">Max Connections</span>
+									</label>
+									<input
+										id="maxConnections"
+										type="number"
+										class="input-bordered input input-sm"
+										bind:value={maxConnections}
+										min="1"
+										max="50"
+									/>
+									<div class="label py-1">
+										<span class="label-text-alt text-xs">
+											Check your usenet provider for connection limits (usually 10-50)
+										</span>
+									</div>
+								</div>
+
+								<div class="form-control">
+									<label class="label py-1" for="priority">
+										<span class="label-text">Priority</span>
+									</label>
+									<input
+										id="priority"
+										type="number"
+										class="input-bordered input input-sm"
+										bind:value={priority}
+										min="0"
+										max="99"
+									/>
+									<div class="label py-1">
+										<span class="label-text-alt text-xs">
+											Lower values = higher priority. Use for server failover.
+										</span>
+									</div>
+								</div>
+							{:else}
 							<!-- Categories (if supported) -->
 							{#if selectedDefinition?.supportsCategories}
 								<SectionHeader title="Categories" />
@@ -561,6 +693,7 @@
 									</span>
 								</div>
 							</div>
+							{/if}
 						</div>
 					</div>
 
@@ -578,9 +711,11 @@
 					<!-- Test Result -->
 					<TestResult
 						result={testResult}
-						successDetails={testResult?.details
-							? `Version: ${testResult.details.version} (API ${testResult.details.apiVersion})${testResult.details.savePath ? ` | Save Path: ${testResult.details.savePath}` : ''}`
-							: undefined}
+						successDetails={testResult?.greeting
+							? `Server greeting: ${testResult.greeting}`
+							: testResult?.details
+								? `Version: ${testResult.details.version} (API ${testResult.details.apiVersion})${testResult.details.savePath ? ` | Save Path: ${testResult.details.savePath}` : ''}`
+								: undefined}
 					/>
 				{/if}
 

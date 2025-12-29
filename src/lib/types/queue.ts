@@ -208,6 +208,8 @@ export interface GrabRequest {
 	isUpgrade?: boolean;
 	/** Force grab even if not an upgrade (bypasses upgrade validation) */
 	force?: boolean;
+	/** Stream NZB directly instead of downloading */
+	streamUsenet?: boolean;
 }
 
 /**

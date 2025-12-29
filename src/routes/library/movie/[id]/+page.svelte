@@ -119,7 +119,10 @@
 		protocol: string;
 	}
 
-	async function handleGrab(release: Release): Promise<{ success: boolean; error?: string }> {
+	async function handleGrab(
+		release: Release,
+		streaming?: boolean
+	): Promise<{ success: boolean; error?: string }> {
 		try {
 			const response = await fetch('/api/download/grab', {
 				method: 'POST',
@@ -133,7 +136,8 @@
 					indexerName: release.indexerName,
 					protocol: release.protocol,
 					movieId: data.movie.id,
-					mediaType: 'movie'
+					mediaType: 'movie',
+					streamUsenet: streaming && release.protocol === 'usenet'
 				})
 			});
 

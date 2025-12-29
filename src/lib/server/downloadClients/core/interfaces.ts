@@ -72,6 +72,26 @@ export interface DownloadInfo {
 }
 
 /**
+ * NNTP server configuration fetched from download clients.
+ * Used for NZB streaming to connect directly to Usenet servers.
+ */
+export interface NntpServerConfig {
+	name: string;
+	host: string;
+	port: number;
+	useSsl: boolean;
+	username?: string;
+	/** Password - may be empty for SABnzbd (user must enter manually) */
+	password?: string;
+	/** Maximum simultaneous connections */
+	maxConnections: number;
+	/** Server priority (lower = try first) */
+	priority: number;
+	/** Whether this server is enabled in the download client */
+	enabled: boolean;
+}
+
+/**
  * Interface that all download client implementations must implement.
  */
 export interface IDownloadClient {
@@ -127,4 +147,11 @@ export interface IDownloadClient {
 	 * Create a category if it doesn't exist.
 	 */
 	ensureCategory(name: string, savePath?: string): Promise<void>;
+
+	/**
+	 * Get configured NNTP servers from the download client.
+	 * Optional - only implemented by Usenet clients (SABnzbd, NZBGet).
+	 * Used for NZB streaming to fetch server credentials.
+	 */
+	getNntpServers?(): Promise<NntpServerConfig[]>;
 }

@@ -9,6 +9,7 @@ import type { GrabRequest, GrabResponse } from '$lib/types/queue';
 import { getDownloadResolutionService, releaseDecisionService } from '$lib/server/downloads';
 import type { DownloadInfo } from '$lib/server/downloadClients/core/interfaces';
 import { strmService, StrmService, getStreamingBaseUrl } from '$lib/server/streaming';
+import { getNzbMountManager } from '$lib/server/streaming/nzb';
 import { mediaInfoService } from '$lib/server/library/media-info';
 import { db } from '$lib/server/db';
 import {
@@ -80,6 +81,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		// If this is a streaming release, bypass download client and create .strm file directly
 		if (data.protocol === 'streaming') {
 			return await handleStreamingGrab(data);
+		}
+
+		// ============================================================
+		// NZB STREAMING - Stream directly via NNTP without download client
+		// ============================================================
+		if (data.protocol === 'usenet' && data.streamUsenet) {
+			return await handleNzbStreamingGrab(data);
 		}
 
 		// ============================================================
@@ -1041,4 +1049,310 @@ async function handleStreamingCompleteSeries(
 			isUpgrade: false
 		}
 	} satisfies GrabResponse);
+}
+
+/**
+ * Handle NZB streaming grab - fetch NZB and create mount for direct NNTP streaming
+ */
+async function handleNzbStreamingGrab(data: GrabRequest): Promise<Response> {
+	const {
+		mediaType,
+		movieId,
+		seriesId,
+		downloadUrl: rawDownloadUrl,
+		title,
+		indexerId,
+		indexerName,
+		episodeIds,
+		seasonNumber
+	} = data;
+
+	logger.info('[Grab] Handling NZB streaming release', {
+		title,
+		downloadUrl: rawDownloadUrl ? redactUrl(rawDownloadUrl) : null,
+		movieId,
+		seriesId
+	});
+
+	if (!rawDownloadUrl) {
+		return json(
+			{ success: false, error: 'Download URL required for NZB streaming' } satisfies GrabResponse,
+			{ status: 400 }
+		);
+	}
+
+	try {
+		// Fetch NZB content through indexer (handles auth/cookies)
+		const indexerManager = await getIndexerManager();
+		const indexer = await indexerManager.getIndexerInstance(indexerId || '');
+
+		// Reconstruct download URL if it was redacted (contains [REDACTED] or URL-encoded %5BREDACTED%5D)
+		// This happens when the URL came from the frontend which received redacted URLs for security
+		let downloadUrl = rawDownloadUrl;
+		const isRedacted =
+			rawDownloadUrl.includes('[REDACTED]') || rawDownloadUrl.includes('%5BREDACTED%5D');
+		if (isRedacted && indexer && 'reconstructDownloadUrl' in indexer) {
+			downloadUrl = (
+				indexer as { reconstructDownloadUrl: (url: string) => string }
+			).reconstructDownloadUrl(rawDownloadUrl);
+			logger.debug('[Grab] Reconstructed redacted download URL');
+		}
+
+		let nzbContent: Buffer | null = null;
+
+		if (indexer && indexer.downloadTorrent) {
+			// Use indexer's download method (works for NZB too)
+			const result = await indexer.downloadTorrent(downloadUrl);
+			if (result.success && result.data) {
+				nzbContent = result.data;
+			}
+		}
+
+		if (!nzbContent) {
+			// Fallback to direct fetch
+			const response = await fetch(downloadUrl);
+			if (response.ok) {
+				nzbContent = Buffer.from(await response.arrayBuffer());
+			}
+		}
+
+		if (!nzbContent || nzbContent.length === 0) {
+			return json({ success: false, error: 'Failed to fetch NZB content' } satisfies GrabResponse, {
+				status: 500
+			});
+		}
+
+		// Create streaming mount
+		const nzbMountManager = getNzbMountManager();
+		const mount = await nzbMountManager.createMount({
+			nzbContent,
+			title,
+			indexerId,
+			downloadUrl,
+			movieId,
+			seriesId,
+			seasonNumber,
+			episodeIds
+		});
+
+		// Determine base URL for .strm files
+		const baseUrl = await getStreamingBaseUrl('http://localhost:5173');
+
+		// Parse quality from release title
+		const parsedRelease = parser.parse(title);
+		const quality = {
+			resolution: parsedRelease.resolution ?? undefined,
+			source: parsedRelease.source ?? 'Usenet',
+			codec: parsedRelease.codec ?? undefined,
+			hdr: parsedRelease.hdr ?? undefined
+		};
+
+		// Create .strm files for each media file in the mount
+		const createdFiles: string[] = [];
+
+		if (mediaType === 'movie' && movieId) {
+			// Get movie for file path calculation
+			const movie = await db.query.movies.findFirst({
+				where: eq(movies.id, movieId),
+				with: { rootFolder: true }
+			});
+
+			if (!movie || !movie.rootFolder) {
+				return json(
+					{ success: false, error: 'Movie or root folder not found' } satisfies GrabResponse,
+					{ status: 404 }
+				);
+			}
+
+			// Create .strm file for the primary media file (first in list)
+			if (mount.mediaFiles.length > 0) {
+				const mediaFile = mount.mediaFiles[0];
+				const strmResult = await strmService.createNzbStrmFile({
+					mountId: mount.id,
+					fileIndex: mediaFile.index,
+					movieId,
+					baseUrl
+				});
+
+				if (strmResult.success && strmResult.filePath) {
+					const stats = statSync(strmResult.filePath);
+					const mediaInfo = await mediaInfoService.extractMediaInfo(strmResult.filePath);
+					const relativePath = relative(movie.rootFolder.path, strmResult.filePath);
+					const fileId = randomUUID();
+
+					// Create movie file record
+					await db.insert(movieFiles).values({
+						id: fileId,
+						movieId,
+						relativePath,
+						size: stats.size,
+						dateAdded: new Date().toISOString(),
+						sceneName: title,
+						releaseGroup: parsedRelease.releaseGroup ?? 'NZB',
+						quality,
+						mediaInfo
+					});
+
+					// Update movie hasFile flag
+					await db.update(movies).set({ hasFile: true }).where(eq(movies.id, movieId));
+
+					// Create history record
+					await db.insert(downloadHistory).values({
+						title,
+						indexerId,
+						indexerName,
+						protocol: 'usenet',
+						movieId,
+						status: 'streaming',
+						size: mount.totalSize,
+						quality,
+						importedPath: strmResult.filePath,
+						movieFileId: fileId,
+						grabbedAt: new Date().toISOString(),
+						importedAt: new Date().toISOString()
+					});
+
+					createdFiles.push(fileId);
+				}
+			}
+		} else if (mediaType === 'tv' && seriesId) {
+			// Get series for file path calculation
+			const show = await db.query.series.findFirst({
+				where: eq(series.id, seriesId),
+				with: { rootFolder: true }
+			});
+
+			if (!show || !show.rootFolder) {
+				return json(
+					{ success: false, error: 'Series or root folder not found' } satisfies GrabResponse,
+					{ status: 404 }
+				);
+			}
+
+			// For each media file, try to match it to an episode
+			for (const mediaFile of mount.mediaFiles) {
+				// Parse the media file name to extract season/episode
+				const fileParsed = parser.parse(mediaFile.name);
+				const season = fileParsed.episode?.season ?? seasonNumber;
+				const episode = fileParsed.episode?.episodes?.[0];
+
+				if (season === undefined || episode === undefined) {
+					logger.debug('[Grab] Could not determine episode for NZB file', {
+						fileName: mediaFile.name,
+						season,
+						episode
+					});
+					continue;
+				}
+
+				// Find the episode
+				const episodeRow = await db.query.episodes.findFirst({
+					where: and(
+						eq(episodes.seriesId, seriesId),
+						eq(episodes.seasonNumber, season),
+						eq(episodes.episodeNumber, episode)
+					)
+				});
+
+				if (!episodeRow) {
+					logger.debug('[Grab] Episode not found for NZB file', {
+						fileName: mediaFile.name,
+						season,
+						episode
+					});
+					continue;
+				}
+
+				// Create .strm file
+				const strmResult = await strmService.createNzbStrmFile({
+					mountId: mount.id,
+					fileIndex: mediaFile.index,
+					seriesId,
+					seasonNumber: season,
+					episodeId: episodeRow.id,
+					baseUrl
+				});
+
+				if (strmResult.success && strmResult.filePath) {
+					const stats = statSync(strmResult.filePath);
+					const mediaInfo = await mediaInfoService.extractMediaInfo(strmResult.filePath);
+					const relativePath = relative(show.rootFolder.path, strmResult.filePath);
+					const fileId = randomUUID();
+
+					// Create episode file record
+					await db.insert(episodeFiles).values({
+						id: fileId,
+						seriesId,
+						seasonNumber: season,
+						episodeIds: [episodeRow.id],
+						relativePath,
+						size: stats.size,
+						dateAdded: new Date().toISOString(),
+						sceneName: title,
+						releaseGroup: parsedRelease.releaseGroup ?? 'NZB',
+						quality,
+						mediaInfo
+					});
+
+					// Update episode hasFile flag
+					await db.update(episodes).set({ hasFile: true }).where(eq(episodes.id, episodeRow.id));
+
+					createdFiles.push(fileId);
+				}
+			}
+
+			// Create single history record for the grab
+			if (createdFiles.length > 0) {
+				await db.insert(downloadHistory).values({
+					title,
+					indexerId,
+					indexerName,
+					protocol: 'usenet',
+					seriesId,
+					episodeIds: episodeIds ?? [],
+					seasonNumber,
+					status: 'streaming',
+					size: mount.totalSize,
+					quality,
+					episodeFileIds: createdFiles,
+					grabbedAt: new Date().toISOString(),
+					importedAt: new Date().toISOString()
+				});
+			}
+		}
+
+		if (createdFiles.length === 0) {
+			return json(
+				{ success: false, error: 'Failed to create any .strm files' } satisfies GrabResponse,
+				{ status: 500 }
+			);
+		}
+
+		logger.info('[Grab] Created NZB streaming mount and .strm files', {
+			title,
+			mountId: mount.id,
+			filesCreated: createdFiles.length,
+			mediaFiles: mount.mediaFiles.length
+		});
+
+		return json({
+			success: true,
+			data: {
+				queueId: mount.id,
+				hash: mount.nzbHash,
+				clientId: 'nzb-streaming',
+				clientName: 'NZB Streaming',
+				category: mediaType === 'movie' ? 'movies' : 'tv',
+				wasDuplicate: false,
+				isUpgrade: false
+			}
+		} satisfies GrabResponse);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		logger.error('[Grab] Failed to handle NZB streaming grab', {
+			title,
+			error: message
+		});
+		return json({ success: false, error: message } satisfies GrabResponse, { status: 500 });
+	}
 }

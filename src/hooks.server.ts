@@ -19,6 +19,7 @@ import { initializeDatabase } from '$lib/server/db';
 import { getBrowserSolver } from '$lib/server/indexers/http/browser';
 import { getServiceManager } from '$lib/server/services/service-manager.js';
 import { initPersistentStreamCache } from '$lib/server/streaming/cache';
+import { getNntpClientManager } from '$lib/server/streaming/nzb';
 
 /**
  * Content Security Policy header.
@@ -53,6 +54,7 @@ let downloadMonitorInitialized = false;
 let monitoringInitialized = false;
 let externalIdServiceInitialized = false;
 let browserSolverInitialized = false;
+let nntpClientManagerInitialized = false;
 
 async function checkFFprobe() {
 	const available = await isFFprobeAvailable();
@@ -161,6 +163,22 @@ async function initializeBrowserSolver() {
 	}
 }
 
+async function initializeNntpClientManager() {
+	if (nntpClientManagerInitialized) return;
+
+	try {
+		// Start the NNTP client manager (for direct NZB streaming)
+		const nntpClientManager = getNntpClientManager();
+		nntpClientManager.start();
+
+		nntpClientManagerInitialized = true;
+		logger.info('NNTP client manager started for NZB streaming');
+	} catch (error) {
+		// Non-fatal - application continues without NZB streaming
+		logger.error('Failed to start NNTP client manager (NZB streaming disabled)', error);
+	}
+}
+
 // Start initialization in next tick - ensures module loading completes immediately
 // so the HTTP server can start responding to requests while services initialize in background.
 // Using setImmediate pushes the async work to the next event loop iteration.
@@ -179,6 +197,7 @@ setImmediate(async () => {
 		serviceManager.register(getDownloadMonitor());
 		serviceManager.register(getMonitoringScheduler());
 		serviceManager.register(getExternalIdService());
+		serviceManager.register(getNntpClientManager());
 
 		// 3. Essential services run in parallel (fire-and-forget with error handling)
 		// These don't block each other or HTTP responses
@@ -192,6 +211,7 @@ setImmediate(async () => {
 		setTimeout(() => {
 			initializeMonitoring().catch((e) => logger.error('Monitoring init failed', e));
 			initializeExternalIdService().catch((e) => logger.error('External ID init failed', e));
+			initializeNntpClientManager().catch((e) => logger.error('NNTP client init failed', e));
 		}, 5000);
 
 		// 5. Browser solver starts after other services (resource-intensive, lower priority)
