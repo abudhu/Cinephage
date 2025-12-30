@@ -21,8 +21,12 @@ import { logger } from '$lib/logging';
  * Version 4: Fix invalid scoring profile references and ensure default profile exists
  * Version 5: Added preserve_symlinks column to root_folders for NZBDav/rclone symlink preservation
  * Version 6: Added nntp_servers and nzb_stream_mounts tables for NZB streaming
+ * Version 7: Added streamability, extraction columns to nzb_stream_mounts for compressed archive support
+ * Version 8: Fixed nzb_stream_mounts status CHECK constraint to include all extraction states
+ * Version 9: Remove deprecated qualityPresets system in favor of scoringProfiles
+ * Version 10: Flag series with broken episode metadata for automatic repair
  */
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 /**
  * All table definitions with CREATE TABLE IF NOT EXISTS
@@ -31,8 +35,7 @@ export const CURRENT_SCHEMA_VERSION = 6;
 const TABLE_DEFINITIONS: string[] = [
 	// Core tables (no foreign keys)
 	`CREATE TABLE IF NOT EXISTS "user" (
-		"id" text PRIMARY KEY NOT NULL,
-		"age" integer
+		"id" text PRIMARY KEY NOT NULL
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "settings" (
@@ -55,34 +58,6 @@ const TABLE_DEFINITIONS: string[] = [
 		"file_hash" text,
 		"loaded_at" text NOT NULL,
 		"updated_at" text NOT NULL
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS "quality_definitions" (
-		"id" text PRIMARY KEY NOT NULL,
-		"resolution" text NOT NULL UNIQUE,
-		"title" text NOT NULL,
-		"weight" integer DEFAULT 0 NOT NULL,
-		"min_size_mb_per_minute" text,
-		"max_size_mb_per_minute" text,
-		"preferred_size_mb_per_minute" text,
-		"created_at" text,
-		"updated_at" text
-	)`,
-
-	`CREATE TABLE IF NOT EXISTS "quality_presets" (
-		"id" text PRIMARY KEY NOT NULL,
-		"name" text NOT NULL,
-		"min_resolution" text,
-		"preferred_resolution" text,
-		"max_resolution" text,
-		"allowed_sources" text,
-		"excluded_sources" text,
-		"prefer_hdr" integer DEFAULT false,
-		"is_default" integer DEFAULT false,
-		"min_size_mb" integer,
-		"max_size_mb" integer,
-		"created_at" text,
-		"updated_at" text
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "scoring_profiles" (
@@ -309,7 +284,6 @@ const TABLE_DEFINITIONS: string[] = [
 		"genres" text,
 		"path" text NOT NULL,
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
-		"quality_preset_id" text REFERENCES "quality_presets"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"language_profile_id" text,
 		"monitored" integer DEFAULT true,
@@ -350,7 +324,6 @@ const TABLE_DEFINITIONS: string[] = [
 		"genres" text,
 		"path" text NOT NULL,
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
-		"quality_preset_id" text REFERENCES "quality_presets"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"language_profile_id" text,
 		"monitored" integer DEFAULT true,
@@ -741,8 +714,11 @@ const TABLE_DEFINITIONS: string[] = [
 		"media_files" text NOT NULL,
 		"rar_info" text,
 		"password" text,
-		"status" text DEFAULT 'pending' NOT NULL CHECK ("status" IN ('pending', 'parsing', 'ready', 'error', 'expired')),
+		"status" text DEFAULT 'pending' NOT NULL CHECK ("status" IN ('pending', 'parsing', 'ready', 'requires_extraction', 'downloading', 'extracting', 'error', 'expired')),
 		"error_message" text,
+		"streamability" text,
+		"extracted_file_path" text,
+		"extraction_progress" integer,
 		"last_accessed_at" text,
 		"access_count" integer DEFAULT 0,
 		"expires_at" text,
@@ -974,7 +950,7 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 					"media_files" text NOT NULL,
 					"rar_info" text,
 					"password" text,
-					"status" text DEFAULT 'pending' NOT NULL CHECK ("status" IN ('pending', 'parsing', 'ready', 'error', 'expired')),
+					"status" text DEFAULT 'pending' NOT NULL CHECK ("status" IN ('pending', 'parsing', 'ready', 'requires_extraction', 'downloading', 'extracting', 'error', 'expired')),
 					"error_message" text,
 					"last_accessed_at" text,
 					"access_count" integer DEFAULT 0,
@@ -1028,6 +1004,332 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			.run();
 
 		logger.info('[SchemaSync] Created NZB streaming tables (nntp_servers, nzb_stream_mounts)');
+	},
+
+	// Version 7: Add streamability and extraction columns for compressed archive support
+	7: (sqlite) => {
+		// Add new columns to nzb_stream_mounts (only if they don't exist)
+		if (!columnExists(sqlite, 'nzb_stream_mounts', 'streamability')) {
+			sqlite.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "streamability" text`).run();
+		}
+		if (!columnExists(sqlite, 'nzb_stream_mounts', 'extracted_file_path')) {
+			sqlite.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "extracted_file_path" text`).run();
+		}
+		if (!columnExists(sqlite, 'nzb_stream_mounts', 'extraction_progress')) {
+			sqlite
+				.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "extraction_progress" integer`)
+				.run();
+		}
+
+		logger.info('[SchemaSync] Added streamability and extraction columns to nzb_stream_mounts');
+	},
+
+	// Version 8: Fix nzb_stream_mounts status CHECK constraint to include extraction states
+	8: (sqlite) => {
+		// SQLite doesn't support ALTER TABLE to modify CHECK constraints
+		// Need to recreate the table with the correct constraint
+
+		// Create new table with correct CHECK constraint
+		sqlite
+			.prepare(
+				`CREATE TABLE "nzb_stream_mounts_new" (
+				"id" text PRIMARY KEY NOT NULL,
+				"nzb_hash" text NOT NULL UNIQUE,
+				"title" text NOT NULL,
+				"indexer_id" text REFERENCES "indexers"("id") ON DELETE SET NULL,
+				"release_guid" text,
+				"download_url" text,
+				"movie_id" text REFERENCES "movies"("id") ON DELETE CASCADE,
+				"series_id" text REFERENCES "series"("id") ON DELETE CASCADE,
+				"season_number" integer,
+				"episode_ids" text,
+				"file_count" integer NOT NULL,
+				"total_size" integer NOT NULL,
+				"media_files" text NOT NULL,
+				"rar_info" text,
+				"password" text,
+				"status" text DEFAULT 'pending' NOT NULL CHECK ("status" IN ('pending', 'parsing', 'ready', 'requires_extraction', 'downloading', 'extracting', 'error', 'expired')),
+				"error_message" text,
+				"streamability" text,
+				"extracted_file_path" text,
+				"extraction_progress" integer,
+				"last_accessed_at" text,
+				"access_count" integer DEFAULT 0,
+				"expires_at" text,
+				"created_at" text,
+				"updated_at" text
+			)`
+			)
+			.run();
+
+		// Copy data from old table
+		sqlite
+			.prepare(
+				`INSERT INTO "nzb_stream_mounts_new" SELECT
+				id, nzb_hash, title, indexer_id, release_guid, download_url,
+				movie_id, series_id, season_number, episode_ids,
+				file_count, total_size, media_files, rar_info, password,
+				status, error_message, streamability, extracted_file_path, extraction_progress,
+				last_accessed_at, access_count, expires_at, created_at, updated_at
+			FROM "nzb_stream_mounts"`
+			)
+			.run();
+
+		// Drop old table
+		sqlite.prepare(`DROP TABLE "nzb_stream_mounts"`).run();
+
+		// Rename new table
+		sqlite.prepare(`ALTER TABLE "nzb_stream_mounts_new" RENAME TO "nzb_stream_mounts"`).run();
+
+		// Recreate indexes
+		sqlite
+			.prepare(
+				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_status" ON "nzb_stream_mounts" ("status")`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_movie" ON "nzb_stream_mounts" ("movie_id")`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_series" ON "nzb_stream_mounts" ("series_id")`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_expires" ON "nzb_stream_mounts" ("expires_at")`
+			)
+			.run();
+		sqlite
+			.prepare(
+				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_hash" ON "nzb_stream_mounts" ("nzb_hash")`
+			)
+			.run();
+
+		logger.info(
+			'[SchemaSync] Fixed nzb_stream_mounts status CHECK constraint to include extraction states'
+		);
+	},
+
+	// Version 9: Remove deprecated qualityPresets system in favor of scoringProfiles
+	9: (sqlite) => {
+		// Step 1: Ensure default scoring profile exists
+		const hasDefault = sqlite.prepare(`SELECT id FROM scoring_profiles WHERE is_default = 1`).get();
+		let defaultProfileId = 'balanced';
+
+		if (!hasDefault) {
+			const validProfiles = sqlite.prepare(`SELECT id FROM scoring_profiles`).all() as {
+				id: string;
+			}[];
+			if (validProfiles.length > 0) {
+				const validIds = new Set(validProfiles.map((p) => p.id));
+				defaultProfileId = validIds.has('balanced') ? 'balanced' : validProfiles[0].id;
+				sqlite
+					.prepare(`UPDATE scoring_profiles SET is_default = 1 WHERE id = ?`)
+					.run(defaultProfileId);
+			}
+		} else {
+			defaultProfileId = (hasDefault as { id: string }).id;
+		}
+
+		// Step 2: Migrate movies with quality_preset_id but no scoring_profile_id
+		if (columnExists(sqlite, 'movies', 'quality_preset_id')) {
+			const migratedMovies = sqlite
+				.prepare(
+					`UPDATE movies SET scoring_profile_id = ?
+					 WHERE (scoring_profile_id IS NULL OR scoring_profile_id = '')
+					 AND quality_preset_id IS NOT NULL`
+				)
+				.run(defaultProfileId);
+
+			if (migratedMovies.changes > 0) {
+				logger.info(
+					`[SchemaSync] Migrated ${migratedMovies.changes} movies from qualityPresets to scoringProfiles`
+				);
+			}
+		}
+
+		// Step 3: Migrate series with quality_preset_id but no scoring_profile_id
+		if (columnExists(sqlite, 'series', 'quality_preset_id')) {
+			const migratedSeries = sqlite
+				.prepare(
+					`UPDATE series SET scoring_profile_id = ?
+					 WHERE (scoring_profile_id IS NULL OR scoring_profile_id = '')
+					 AND quality_preset_id IS NOT NULL`
+				)
+				.run(defaultProfileId);
+
+			if (migratedSeries.changes > 0) {
+				logger.info(
+					`[SchemaSync] Migrated ${migratedSeries.changes} series from qualityPresets to scoringProfiles`
+				);
+			}
+		}
+
+		// Step 4: Drop quality_preset_id column from movies (requires table recreation)
+		if (columnExists(sqlite, 'movies', 'quality_preset_id')) {
+			sqlite
+				.prepare(
+					`CREATE TABLE "movies_new" (
+					"id" text PRIMARY KEY NOT NULL,
+					"tmdb_id" integer NOT NULL UNIQUE,
+					"imdb_id" text,
+					"title" text NOT NULL,
+					"original_title" text,
+					"year" integer,
+					"overview" text,
+					"poster_path" text,
+					"backdrop_path" text,
+					"runtime" integer,
+					"genres" text,
+					"path" text NOT NULL,
+					"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
+					"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
+					"language_profile_id" text,
+					"monitored" integer DEFAULT true,
+					"minimum_availability" text DEFAULT 'released',
+					"added" text,
+					"has_file" integer DEFAULT false,
+					"wants_subtitles" integer DEFAULT true,
+					"last_search_time" text
+				)`
+				)
+				.run();
+
+			sqlite
+				.prepare(
+					`INSERT INTO "movies_new" SELECT
+					id, tmdb_id, imdb_id, title, original_title, year, overview,
+					poster_path, backdrop_path, runtime, genres, path, root_folder_id,
+					scoring_profile_id, language_profile_id, monitored, minimum_availability,
+					added, has_file, wants_subtitles, last_search_time
+				FROM "movies"`
+				)
+				.run();
+
+			sqlite.prepare(`DROP TABLE "movies"`).run();
+			sqlite.prepare(`ALTER TABLE "movies_new" RENAME TO "movies"`).run();
+
+			// Recreate indexes
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_movies_monitored_hasfile" ON "movies" ("monitored", "has_file")`
+				)
+				.run();
+		}
+
+		// Step 5: Drop quality_preset_id column from series (requires table recreation)
+		if (columnExists(sqlite, 'series', 'quality_preset_id')) {
+			sqlite
+				.prepare(
+					`CREATE TABLE "series_new" (
+					"id" text PRIMARY KEY NOT NULL,
+					"tmdb_id" integer NOT NULL UNIQUE,
+					"tvdb_id" integer,
+					"imdb_id" text,
+					"title" text NOT NULL,
+					"original_title" text,
+					"year" integer,
+					"overview" text,
+					"poster_path" text,
+					"backdrop_path" text,
+					"status" text,
+					"network" text,
+					"genres" text,
+					"path" text NOT NULL,
+					"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
+					"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
+					"language_profile_id" text,
+					"monitored" integer DEFAULT true,
+					"monitor_new_items" text DEFAULT 'all',
+					"monitor_specials" integer DEFAULT false,
+					"season_folder" integer DEFAULT true,
+					"series_type" text DEFAULT 'standard',
+					"added" text,
+					"episode_count" integer DEFAULT 0,
+					"episode_file_count" integer DEFAULT 0,
+					"wants_subtitles" integer DEFAULT true
+				)`
+				)
+				.run();
+
+			sqlite
+				.prepare(
+					`INSERT INTO "series_new" SELECT
+					id, tmdb_id, tvdb_id, imdb_id, title, original_title, year, overview,
+					poster_path, backdrop_path, status, network, genres, path, root_folder_id,
+					scoring_profile_id, language_profile_id, monitored, monitor_new_items,
+					monitor_specials, season_folder, series_type, added, episode_count,
+					episode_file_count, wants_subtitles
+				FROM "series"`
+				)
+				.run();
+
+			sqlite.prepare(`DROP TABLE "series"`).run();
+			sqlite.prepare(`ALTER TABLE "series_new" RENAME TO "series"`).run();
+
+			// Recreate indexes
+			sqlite
+				.prepare(`CREATE INDEX IF NOT EXISTS "idx_series_monitored" ON "series" ("monitored")`)
+				.run();
+		}
+
+		// Step 6: Drop quality_presets table
+		if (tableExists(sqlite, 'quality_presets')) {
+			sqlite.prepare(`DROP TABLE "quality_presets"`).run();
+			logger.info('[SchemaSync] Dropped deprecated quality_presets table');
+		}
+
+		logger.info(
+			'[SchemaSync] Completed migration from qualityPresets to scoringProfiles (Version 9)'
+		);
+	},
+
+	// Version 10: Flag series with broken episode metadata for automatic repair
+	10: (sqlite) => {
+		logger.info('[SchemaSync] Checking for series with broken episode metadata...');
+
+		// Find series that have episode_files but no episodes in the database
+		// These series were created through the unmatched endpoint bug
+		const brokenSeries = sqlite
+			.prepare(
+				`
+				SELECT DISTINCT s.id, s.tmdb_id, s.title
+				FROM series s
+				INNER JOIN episode_files ef ON ef.series_id = s.id
+				WHERE s.episode_count = 0 OR NOT EXISTS (
+					SELECT 1 FROM episodes e WHERE e.series_id = s.id
+				)
+			`
+			)
+			.all() as Array<{ id: string; tmdb_id: number; title: string }>;
+
+		if (brokenSeries.length === 0) {
+			logger.info('[SchemaSync] No series need episode metadata repair');
+			return;
+		}
+
+		logger.info('[SchemaSync] Found series needing episode metadata repair', {
+			count: brokenSeries.length,
+			series: brokenSeries.map((s) => s.title)
+		});
+
+		// Flag each series for repair by the DataRepairService on startup
+		// We use settings table since TMDB API calls need to be async
+		for (const series of brokenSeries) {
+			sqlite
+				.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`)
+				.run(
+					`repair_series_${series.id}`,
+					JSON.stringify({ tmdbId: series.tmdb_id, title: series.title })
+				);
+		}
+
+		logger.info('[SchemaSync] Queued series for metadata repair on next startup', {
+			count: brokenSeries.length
+		});
 	}
 };
 

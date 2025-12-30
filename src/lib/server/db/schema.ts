@@ -5,8 +5,7 @@ import { randomUUID } from 'node:crypto';
 export const user = sqliteTable('user', {
 	id: text('id')
 		.primaryKey()
-		.$defaultFn(() => randomUUID()),
-	age: integer('age')
+		.$defaultFn(() => randomUUID())
 });
 
 export const settings = sqliteTable('settings', {
@@ -225,66 +224,6 @@ export const indexersRelations = relations(indexers, ({ one }) => ({
 		references: [indexerStatus.indexerId]
 	})
 }));
-
-/**
- * Quality Definitions - Resolution/quality definitions with size limits per minute
- * Currently unused but available for future quality management features
- * Inspired by Radarr/Sonarr quality definition system
- */
-export const qualityDefinitions = sqliteTable('quality_definitions', {
-	id: text('id')
-		.primaryKey()
-		.$defaultFn(() => randomUUID()),
-	resolution: text('resolution').notNull().unique(),
-	title: text('title').notNull(),
-	weight: integer('weight').default(0).notNull(),
-	// Size limits per minute of video (stored as text for decimal precision)
-	minSizeMbPerMinute: text('min_size_mb_per_minute'),
-	maxSizeMbPerMinute: text('max_size_mb_per_minute'),
-	preferredSizeMbPerMinute: text('preferred_size_mb_per_minute'),
-	createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
-	updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
-});
-
-/**
- * Quality Presets - Define minimum quality requirements and preferences
- * Used to filter and score search results
- *
- * @deprecated This table is deprecated in favor of `scoringProfiles` which provides
- * a more comprehensive quality scoring system. The qualityPresets table will be
- * removed in a future version. Use `scoringProfiles` for all new code.
- *
- * Migration path:
- * - Movies/series have both qualityPresetId and scoringProfileId
- * - scoringProfileId is the preferred field to use
- * - qualityPresetId is kept for backwards compatibility
- */
-export const qualityPresets = sqliteTable('quality_presets', {
-	id: text('id')
-		.primaryKey()
-		.$defaultFn(() => randomUUID()),
-	name: text('name').notNull(),
-	// Minimum acceptable resolution (null = any)
-	minResolution: text('min_resolution'),
-	// Preferred resolution (ideal target)
-	preferredResolution: text('preferred_resolution'),
-	// Maximum resolution (null = no limit)
-	maxResolution: text('max_resolution'),
-	// Allowed sources as JSON array (e.g., ['bluray', 'webdl', 'webrip'])
-	allowedSources: text('allowed_sources', { mode: 'json' }).$type<string[]>(),
-	// Excluded sources as JSON array (e.g., ['cam', 'telesync'])
-	excludedSources: text('excluded_sources', { mode: 'json' }).$type<string[]>(),
-	// Prefer HDR content
-	preferHdr: integer('prefer_hdr', { mode: 'boolean' }).default(false),
-	// Is this the default preset
-	isDefault: integer('is_default', { mode: 'boolean' }).default(false),
-	// Minimum size in MB (null = no minimum)
-	minSizeMb: integer('min_size_mb'),
-	// Maximum size in MB (null = no maximum)
-	maxSizeMb: integer('max_size_mb'),
-	createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
-	updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
-});
 
 /**
  * Scoring Profiles - Custom profiles that configure how releases are scored
@@ -528,10 +467,6 @@ export const movies = sqliteTable(
 		// Path to the movie folder (relative to root folder)
 		path: text('path').notNull(),
 		rootFolderId: text('root_folder_id').references(() => rootFolders.id, { onDelete: 'set null' }),
-		// Legacy quality preset (for filtering - to be deprecated)
-		qualityPresetId: text('quality_preset_id').references(() => qualityPresets.id, {
-			onDelete: 'set null'
-		}),
 		// Quality profile for scoring and filtering releases
 		scoringProfileId: text('scoring_profile_id').references(() => scoringProfiles.id, {
 			onDelete: 'set null'
@@ -628,10 +563,6 @@ export const series = sqliteTable(
 		// Path to the series folder (relative to root folder)
 		path: text('path').notNull(),
 		rootFolderId: text('root_folder_id').references(() => rootFolders.id, { onDelete: 'set null' }),
-		// Legacy quality preset (for filtering - to be deprecated)
-		qualityPresetId: text('quality_preset_id').references(() => qualityPresets.id, {
-			onDelete: 'set null'
-		}),
 		// Quality profile for scoring and filtering releases
 		scoringProfileId: text('scoring_profile_id').references(() => scoringProfiles.id, {
 			onDelete: 'set null'
@@ -1470,10 +1401,6 @@ export const moviesRelations = relations(movies, ({ one, many }) => ({
 		fields: [movies.rootFolderId],
 		references: [rootFolders.id]
 	}),
-	qualityPreset: one(qualityPresets, {
-		fields: [movies.qualityPresetId],
-		references: [qualityPresets.id]
-	}),
 	languageProfile: one(languageProfiles, {
 		fields: [movies.languageProfileId],
 		references: [languageProfiles.id]
@@ -1492,10 +1419,6 @@ export const seriesRelations = relations(series, ({ one, many }) => ({
 	rootFolder: one(rootFolders, {
 		fields: [series.rootFolderId],
 		references: [rootFolders.id]
-	}),
-	qualityPreset: one(qualityPresets, {
-		fields: [series.qualityPresetId],
-		references: [qualityPresets.id]
 	}),
 	languageProfile: one(languageProfiles, {
 		fields: [series.languageProfileId],
@@ -2131,10 +2054,33 @@ export const nzbStreamMounts = sqliteTable(
 		// RAR password if needed (encrypted)
 		password: text('password'),
 		// Stream state
-		status: text('status', { enum: ['pending', 'parsing', 'ready', 'error', 'expired'] })
+		status: text('status', {
+			enum: [
+				'pending',
+				'parsing',
+				'ready',
+				'requires_extraction',
+				'downloading',
+				'extracting',
+				'error',
+				'expired'
+			]
+		})
 			.notNull()
 			.default('pending'),
 		errorMessage: text('error_message'),
+		// Streamability info (populated after checkStreamability is called)
+		streamability: text('streamability', { mode: 'json' }).$type<{
+			canStream: boolean;
+			requiresExtraction: boolean;
+			archiveType?: 'rar' | '7z' | 'zip' | 'none';
+			compressionMethod?: number;
+			requiresPassword?: boolean;
+			error?: string;
+		}>(),
+		// Extraction state
+		extractedFilePath: text('extracted_file_path'),
+		extractionProgress: integer('extraction_progress'),
 		// Usage tracking
 		lastAccessedAt: text('last_accessed_at'),
 		accessCount: integer('access_count').default(0),

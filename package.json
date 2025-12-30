@@ -33,6 +33,7 @@
 		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^25",
 		"@types/parse-torrent": "^5.8.8",
+		"@types/unzipper": "^0.10.11",
 		"@vitest/browser-playwright": "^4.0.16",
 		"daisyui": "^5.5.14",
 		"dotenv": "^17.2.3",
@@ -60,6 +61,7 @@
 	},
 	"dependencies": {
 		"@types/crypto-js": "^4.2.2",
+		"7z-wasm": "^1.2.0",
 		"adm-zip": "^0.5.16",
 		"better-sqlite3": "^12.5.0",
 		"cheerio": "^1.1.2",
@@ -67,8 +69,10 @@
 		"crypto-js": "^4.2.0",
 		"fast-xml-parser": "^5.3.3",
 		"js-yaml": "^4.1.1",
+		"node-unrar-js": "^2.0.2",
 		"parse-torrent": "^11.0.19",
 		"playwright": "^1.57.0",
+		"unzipper": "^0.12.3",
 		"zod": "^4.2.1"
 	}
 }
