@@ -104,7 +104,7 @@ describe('SABnzbd Status Mapping', () => {
 		function shouldTriggerImport(
 			wasCompleted: boolean,
 			status: DownloadStatus,
-			progress: number
+			_progress: number
 		): boolean {
 			// OLD (buggy): return !wasCompleted && progress >= 1 && status !== 'error';
 			// NEW (fixed): return !wasCompleted && status === 'completed';
@@ -470,11 +470,7 @@ describe('Completion Detection with Storage Validation (Issue #51 Fix)', () => {
 		const postProcessingStates = ['Extracting', 'Moving', 'Verifying', 'Running'];
 
 		for (const status of postProcessingStates) {
-			const result = determineCompletionStatus(
-				status,
-				'/mnt/sabnzbd/Movie.2024',
-				'/mnt/sabnzbd'
-			);
+			const result = determineCompletionStatus(status, '/mnt/sabnzbd/Movie.2024', '/mnt/sabnzbd');
 			expect(result.isCompleted).toBe(false);
 			expect(result.mappedStatus).toBe('downloading');
 		}

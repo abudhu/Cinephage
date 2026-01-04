@@ -5,18 +5,20 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { logger } from '$lib/logging';
-import { FFMPEG_PATH, FFMPEG_CONNECT_TIMEOUT_US } from './constants';
+import { FFMPEG_PATH, FFMPEG_CONNECT_TIMEOUT_US, FFMPEG_RW_TIMEOUT_US } from './constants';
 import type { FFmpegStreamOptions, ActiveStream } from './types';
 
 class FFmpegStreamService {
 	private activeStreams: Map<string, ActiveStream> = new Map();
+	private killedStreams: Set<string> = new Set(); // Track intentionally killed streams
 
 	/**
 	 * Build FFmpeg command arguments for stream proxying.
 	 * Uses codec copy (passthrough) with MPEG-TS output for compatibility.
 	 */
 	private buildArgs(options: FFmpegStreamOptions): string[] {
-		const timeout = options.timeout ?? FFMPEG_CONNECT_TIMEOUT_US;
+		const connectTimeout = options.timeout ?? FFMPEG_CONNECT_TIMEOUT_US;
+		const rwTimeout = FFMPEG_RW_TIMEOUT_US;
 		const args: string[] = [];
 
 		// Add headers before -i if provided (FFmpeg expects format: "Key: Value\r\n")
@@ -28,15 +30,22 @@ class FFmpegStreamService {
 		}
 
 		args.push(
-			// Reconnect options for live streams
+			// Reconnect options for live streams - critical for IPTV stability
 			'-reconnect',
 			'1',
 			'-reconnect_streamed',
 			'1',
+			'-reconnect_at_eof',
+			'1', // Reconnect if stream ends unexpectedly
+			'-reconnect_on_network_error',
+			'1', // Reconnect on network errors
 			'-reconnect_delay_max',
-			'5',
+			'10', // Max delay between reconnects (seconds)
+			// Timeout settings
 			'-timeout',
-			String(timeout),
+			String(connectTimeout), // Connection timeout
+			'-rw_timeout',
+			String(rwTimeout), // Read/write timeout for stalled streams
 			'-i',
 			options.streamUrl,
 			'-map',
@@ -48,9 +57,18 @@ class FFmpegStreamService {
 			'-flush_packets',
 			'0',
 			'-fflags',
-			'+nobuffer+discardcorrupt', // Reduce buffering, discard corrupt packets
+			'+nobuffer+discardcorrupt+igndts', // Reduce buffering, discard corrupt, ignore DTS
 			'-flags',
 			'low_delay', // Low latency mode
+			'-copyts', // Preserve timestamps
+			'-strict',
+			'experimental',
+			'-threads',
+			'8', // Multi-threading
+			'-max_delay',
+			'500000', // Max delay before forcing output (0.5 seconds)
+			'-avoid_negative_ts',
+			'make_zero', // Handle negative timestamps
 			'pipe:1' // Output to stdout
 		);
 
@@ -80,8 +98,10 @@ class FFmpegStreamService {
 		});
 
 		ffmpegProcess.on('close', (code) => {
-			if (code !== 0) {
-				// Log last 500 chars of stderr on error
+			// Exit code 255 = killed by signal (SIGTERM), which is expected when we call killStream()
+			// Exit code 0 = normal exit (stream ended naturally)
+			// Exit codes 1-254 = actual errors worth logging
+			if (code !== 0 && code !== null && code !== 255) {
 				const lastStderr = stderrBuffer.slice(-500);
 				logger.error('[FFmpegStreamService] FFmpeg failed', {
 					exitCode: code,
@@ -132,9 +152,24 @@ class FFmpegStreamService {
 		const stream = this.activeStreams.get(key);
 		if (stream) {
 			logger.info('[FFmpegStreamService] Killing stream', { key });
+			this.killedStreams.add(key); // Mark as intentionally killed before SIGTERM
 			stream.process.kill('SIGTERM');
 			this.unregisterStream(key);
 		}
+	}
+
+	/**
+	 * Check if a stream was intentionally killed (vs unexpected exit).
+	 */
+	wasIntentionallyKilled(key: string): boolean {
+		return this.killedStreams.has(key);
+	}
+
+	/**
+	 * Clear killed stream tracking (call after handling exit).
+	 */
+	clearKilledFlag(key: string): void {
+		this.killedStreams.delete(key);
 	}
 
 	/**

@@ -76,6 +76,13 @@
 
 	// Sync account channels
 	async function handleSyncAccount(account: StalkerAccount) {
+		const confirmed = confirm(
+			`Sync will refresh channel metadata from "${account.name}".\n\n` +
+				`This updates existing lineup channels only - it will not add or remove channels.\n\n` +
+				`Continue?`
+		);
+		if (!confirmed) return;
+
 		syncingId = account.id;
 		try {
 			await fetch(`/api/livetv/accounts/${account.id}/sync`, {

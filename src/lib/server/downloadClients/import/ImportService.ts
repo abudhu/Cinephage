@@ -34,7 +34,7 @@ import {
 	fileExists,
 	VIDEO_EXTENSIONS
 } from './FileTransfer';
-import { unlink } from 'fs/promises';
+import { unlink, rm } from 'fs/promises';
 import { ReleaseParser } from '$lib/server/indexers/parser/ReleaseParser';
 import { mediaInfoService } from '$lib/server/library/media-info';
 import {
@@ -506,6 +506,16 @@ export class ImportService extends EventEmitter {
 			});
 		});
 
+		// For usenet downloads, delete source folder (no seeding needed)
+		if (queueItem.protocol === 'usenet' && queueItem.outputPath) {
+			this.cleanupUsenetSource(queueItem.outputPath).catch((err) => {
+				logger.warn('[ImportService] Failed to cleanup usenet source', {
+					outputPath: queueItem.outputPath,
+					error: err instanceof Error ? err.message : String(err)
+				});
+			});
+		}
+
 		return result;
 	}
 
@@ -658,6 +668,16 @@ export class ImportService extends EventEmitter {
 				this.triggerSubtitleSearchForEpisodeFiles(importedFileIds).catch((err) => {
 					logger.warn('[ImportService] Failed to trigger subtitle search for episodes', {
 						seriesId: seriesData.id,
+						error: err instanceof Error ? err.message : String(err)
+					});
+				});
+			}
+
+			// For usenet downloads, delete source folder (no seeding needed)
+			if (queueItem.protocol === 'usenet' && queueItem.outputPath) {
+				this.cleanupUsenetSource(queueItem.outputPath).catch((err) => {
+					logger.warn('[ImportService] Failed to cleanup usenet source', {
+						outputPath: queueItem.outputPath,
 						error: err instanceof Error ? err.message : String(err)
 					});
 				});
@@ -1321,6 +1341,42 @@ export class ImportService extends EventEmitter {
 			completedAt: queueItem.completedAt,
 			importedAt: new Date().toISOString()
 		});
+	}
+
+	/**
+	 * Cleanup source folder for usenet downloads.
+	 * Usenet downloads don't need to be kept for seeding, so we can delete
+	 * the source folder after successful import to save disk space.
+	 */
+	private async cleanupUsenetSource(sourcePath: string): Promise<void> {
+		try {
+			// Check if it exists first
+			const exists = await fileExists(sourcePath);
+			if (!exists) {
+				logger.debug('[ImportService] Usenet source already cleaned up', { sourcePath });
+				return;
+			}
+
+			// Check if it's a file or directory
+			const stats = await stat(sourcePath);
+
+			if (stats.isDirectory()) {
+				await rm(sourcePath, { recursive: true, force: true });
+			} else {
+				await unlink(sourcePath);
+			}
+
+			logger.info('[ImportService] Deleted usenet source after import', {
+				sourcePath,
+				wasDirectory: stats.isDirectory()
+			});
+		} catch (err) {
+			// Log but don't throw - cleanup failure shouldn't fail the import
+			logger.warn('[ImportService] Failed to delete usenet source', {
+				sourcePath,
+				error: err instanceof Error ? err.message : String(err)
+			});
+		}
 	}
 }
 

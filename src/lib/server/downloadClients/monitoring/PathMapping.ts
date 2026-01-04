@@ -24,37 +24,62 @@ export interface PathMappingConfig {
 }
 
 /**
+ * Result of path mapping operation
+ */
+export interface PathMappingResult {
+	/** The mapped path */
+	path: string;
+	/** Whether the mapping was exact (true) or a best-guess (false) */
+	exact: boolean;
+	/** Warning message if best-guess was used */
+	warning?: string;
+}
+
+/**
+ * Path mapping options for dual folder support (SABnzbd temp + completed).
+ */
+export interface PathMappingOptions {
+	/** Local path for completed downloads */
+	completeLocalPath: string | null | undefined;
+	/** Remote path for completed downloads (as client reports) */
+	completeRemotePath?: string | null;
+	/** Local path for temp/incomplete downloads (SABnzbd only) */
+	tempLocalPath?: string | null;
+	/** Remote path for temp/incomplete downloads (SABnzbd only) */
+	tempRemotePath?: string | null;
+}
+
+/**
  * Map a path from client's perspective to local filesystem path.
+ * Supports dual folder mapping for SABnzbd (temp + completed folders).
  *
  * @param clientPath - Path as reported by the download client
- * @param localBasePath - Local base path configured in download client settings
- * @param clientBasePath - Optional client's base path (if known from preferences)
+ * @param localBasePath - Local base path for completed downloads
+ * @param clientBasePath - Client's base path for completed downloads
+ * @param tempLocalPath - Local base path for temp downloads (SABnzbd)
+ * @param tempRemotePath - Client's base path for temp downloads (SABnzbd)
  * @returns The mapped local path, or original if no mapping possible
  */
 export function mapClientPathToLocal(
 	clientPath: string,
 	localBasePath: string | null | undefined,
-	clientBasePath?: string | null
+	clientBasePath?: string | null,
+	tempLocalPath?: string | null,
+	tempRemotePath?: string | null
 ): string {
-	// If no local path configured, return as-is
-	if (!localBasePath) {
-		return clientPath;
-	}
-
-	// Normalize paths (remove trailing slashes)
-	const normalizedLocal = localBasePath.replace(/\/+$/, '');
+	// Normalize client path
 	const normalizedClientPath = clientPath.replace(/\/+$/, '');
 
-	// If client base path is known, use it for mapping
-	if (clientBasePath) {
+	// Try completed folder mapping first
+	if (localBasePath && clientBasePath) {
+		const normalizedLocal = localBasePath.replace(/\/+$/, '');
 		const normalizedRemote = clientBasePath.replace(/\/+$/, '');
 
-		// Check if client path starts with the remote base
 		if (normalizedClientPath.startsWith(normalizedRemote)) {
 			const relativePath = normalizedClientPath.slice(normalizedRemote.length);
 			const mappedPath = normalizedLocal + relativePath;
 
-			logger.debug('Path mapped', {
+			logger.debug('Path mapped (completed folder)', {
 				clientPath,
 				clientBasePath,
 				localBasePath,
@@ -64,6 +89,33 @@ export function mapClientPathToLocal(
 			return mappedPath;
 		}
 	}
+
+	// Try temp folder mapping (SABnzbd incomplete downloads)
+	if (tempLocalPath && tempRemotePath) {
+		const normalizedTempLocal = tempLocalPath.replace(/\/+$/, '');
+		const normalizedTempRemote = tempRemotePath.replace(/\/+$/, '');
+
+		if (normalizedClientPath.startsWith(normalizedTempRemote)) {
+			const relativePath = normalizedClientPath.slice(normalizedTempRemote.length);
+			const mappedPath = normalizedTempLocal + relativePath;
+
+			logger.debug('Path mapped (temp folder)', {
+				clientPath,
+				tempRemotePath,
+				tempLocalPath,
+				mappedPath
+			});
+
+			return mappedPath;
+		}
+	}
+
+	// If no remote paths configured but local path exists, fall back to heuristics
+	if (!localBasePath) {
+		return clientPath;
+	}
+
+	const normalizedLocal = localBasePath.replace(/\/+$/, '');
 
 	// Try to intelligently detect the common directory structure
 	// Look for common torrent client folder names
@@ -127,26 +179,157 @@ export function mapClientPathToLocal(
 }
 
 /**
+ * Map a path from client's perspective to local filesystem path.
+ * Returns extended result with exact flag and optional warning.
+ *
+ * @param clientPath - Path as reported by the download client
+ * @param options - Path mapping options
+ * @returns The mapped local path with metadata about mapping quality
+ */
+export function mapClientPathToLocalWithResult(
+	clientPath: string,
+	options: PathMappingOptions
+): PathMappingResult {
+	const { completeLocalPath, completeRemotePath, tempLocalPath, tempRemotePath } = options;
+
+	// Normalize client path
+	const normalizedClientPath = clientPath.replace(/\/+$/, '');
+
+	// Try completed folder mapping first
+	if (completeLocalPath && completeRemotePath) {
+		const normalizedLocal = completeLocalPath.replace(/\/+$/, '');
+		const normalizedRemote = completeRemotePath.replace(/\/+$/, '');
+
+		if (normalizedClientPath.startsWith(normalizedRemote)) {
+			const relativePath = normalizedClientPath.slice(normalizedRemote.length);
+			const mappedPath = normalizedLocal + relativePath;
+
+			logger.debug('Path mapped (completed folder)', {
+				clientPath,
+				completeRemotePath,
+				completeLocalPath,
+				mappedPath
+			});
+
+			return { path: mappedPath, exact: true };
+		}
+	}
+
+	// Try temp folder mapping (SABnzbd incomplete downloads)
+	if (tempLocalPath && tempRemotePath) {
+		const normalizedTempLocal = tempLocalPath.replace(/\/+$/, '');
+		const normalizedTempRemote = tempRemotePath.replace(/\/+$/, '');
+
+		if (normalizedClientPath.startsWith(normalizedTempRemote)) {
+			const relativePath = normalizedClientPath.slice(normalizedTempRemote.length);
+			const mappedPath = normalizedTempLocal + relativePath;
+
+			logger.debug('Path mapped (temp folder)', {
+				clientPath,
+				tempRemotePath,
+				tempLocalPath,
+				mappedPath
+			});
+
+			return { path: mappedPath, exact: true };
+		}
+	}
+
+	// If no remote paths configured but local path exists, fall back to heuristics
+	if (!completeLocalPath) {
+		return { path: clientPath, exact: false, warning: 'No local path configured' };
+	}
+
+	const normalizedLocal = completeLocalPath.replace(/\/+$/, '');
+
+	// Try to intelligently detect the common directory structure
+	const commonPrefixes = ['/downloads', '/data', '/torrents', '/complete', '/finished', '/media'];
+
+	for (const prefix of commonPrefixes) {
+		const prefixIndex = normalizedClientPath.indexOf(prefix);
+		if (prefixIndex !== -1) {
+			if (normalizedLocal.endsWith(prefix)) {
+				const relativePath = normalizedClientPath.slice(prefixIndex + prefix.length);
+				return { path: normalizedLocal + relativePath, exact: true };
+			}
+
+			const localPrefixEnd = normalizedLocal.lastIndexOf('/');
+			if (localPrefixEnd !== -1) {
+				const relativePath = normalizedClientPath.slice(prefixIndex + prefix.length);
+				if (relativePath) {
+					return { path: normalizedLocal + relativePath, exact: true };
+				}
+			}
+		}
+	}
+
+	// Try to match folder names
+	const clientParts = normalizedClientPath.split('/').filter(Boolean);
+	const localParts = normalizedLocal.split('/').filter(Boolean);
+
+	for (let i = 0; i < clientParts.length; i++) {
+		const clientFolder = clientParts[i];
+		const localIndex = localParts.lastIndexOf(clientFolder);
+
+		if (localIndex !== -1 && localIndex === localParts.length - 1) {
+			const relativeParts = clientParts.slice(i + 1);
+			if (relativeParts.length > 0) {
+				return { path: normalizedLocal + '/' + relativeParts.join('/'), exact: true };
+			}
+			return { path: normalizedLocal, exact: true };
+		}
+	}
+
+	// Best guess fallback
+	const lastPart = clientParts[clientParts.length - 1];
+	if (lastPart && !normalizedLocal.endsWith(lastPart)) {
+		const guessedPath = `${normalizedLocal}/${lastPart}`;
+		logger.warn('Could not determine path mapping, using best guess', {
+			clientPath,
+			completeLocalPath,
+			result: guessedPath
+		});
+		return {
+			path: guessedPath,
+			exact: false,
+			warning: `Path mapping used best-guess: client reported "${clientPath}" but no exact mapping found`
+		};
+	}
+
+	return { path: normalizedLocal, exact: true };
+}
+
+/**
  * Extract the content path (file or folder containing files) from a download.
  * Handles both single-file and multi-file torrents.
  *
  * @param savePath - The save path from the download client
  * @param contentPath - The content path (may be same as save_path for single files)
- * @param localBasePath - Local base path for mapping
- * @param clientBasePath - Client's base path for mapping
+ * @param localBasePath - Local base path for completed downloads
+ * @param clientBasePath - Client's base path for completed downloads
+ * @param tempLocalPath - Local base path for temp downloads (SABnzbd)
+ * @param tempRemotePath - Client's base path for temp downloads (SABnzbd)
  * @returns The mapped path to the actual content
  */
 export function getContentPath(
 	savePath: string,
 	contentPath: string | undefined,
 	localBasePath: string | null | undefined,
-	clientBasePath?: string | null
+	clientBasePath?: string | null,
+	tempLocalPath?: string | null,
+	tempRemotePath?: string | null
 ): string {
 	// If content_path is provided and different from save_path, use it
 	// (indicates the actual file/folder name within save_path)
 	const pathToMap = contentPath || savePath;
 
-	return mapClientPathToLocal(pathToMap, localBasePath, clientBasePath);
+	return mapClientPathToLocal(
+		pathToMap,
+		localBasePath,
+		clientBasePath,
+		tempLocalPath,
+		tempRemotePath
+	);
 }
 
 /**

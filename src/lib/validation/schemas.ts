@@ -389,6 +389,9 @@ export const downloadClientCreateSchema = z.object({
 
 	// Path mapping
 	downloadPathLocal: z.string().optional().nullable(),
+	downloadPathRemote: z.string().optional().nullable(),
+	tempPathLocal: z.string().optional().nullable(),
+	tempPathRemote: z.string().optional().nullable(),
 
 	priority: z.number().int().min(1).max(100).default(1)
 });
@@ -803,7 +806,9 @@ export const addToLineupSchema = z.object({
 				name: z.string().min(1, 'Channel name is required'),
 				logo: z.string().optional(),
 				categoryId: z.string().optional(),
-				categoryName: z.string().optional()
+				categoryName: z.string().optional(),
+				// User's custom category to assign to this channel
+				userCategoryId: z.string().uuid().nullable().optional()
 			})
 		)
 		.min(1, 'At least one channel is required')

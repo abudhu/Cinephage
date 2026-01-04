@@ -288,8 +288,9 @@ export class IndexerManager {
 
 		await db.update(indexersTable).set(updateData).where(eq(indexersTable.id, id));
 
-		// Clear cached instance so it gets recreated
+		// Clear cached instances so they get recreated with new settings
 		this.indexerInstances.delete(id);
+		this.indexerFactory.removeIndexer(id);
 
 		// Update status tracking
 		const statusTracker = getPersistentStatusTracker();

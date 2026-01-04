@@ -417,8 +417,11 @@ export const downloadClients = sqliteTable('download_clients', {
 
 	// Path mapping - local path as seen by Cinephage server
 	downloadPathLocal: text('download_path_local'),
-	// QBittorrent's reported path (for reference)
+	// Client's reported path (for completed downloads)
 	downloadPathRemote: text('download_path_remote'),
+	// SABnzbd temp folder paths (for incomplete downloads)
+	tempPathLocal: text('temp_path_local'),
+	tempPathRemote: text('temp_path_remote'),
 
 	priority: integer('priority').default(1),
 	createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),

@@ -149,9 +149,23 @@ export interface IDownloadClient {
 	ensureCategory(name: string, savePath?: string): Promise<void>;
 
 	/**
+	 * Retry a failed download.
+	 * Optional - only implemented by clients that support retry (SABnzbd, NZBGet).
+	 * Returns the new download ID if retry creates a new entry.
+	 */
+	retryDownload?(id: string): Promise<string | undefined>;
+
+	/**
 	 * Get configured NNTP servers from the download client.
 	 * Optional - only implemented by Usenet clients (SABnzbd, NZBGet).
 	 * Used for NZB streaming to fetch server credentials.
 	 */
 	getNntpServers?(): Promise<NntpServerConfig[]>;
+
+	/**
+	 * Get the base download path from client configuration.
+	 * Used for path mapping when the client runs on a different machine.
+	 * Optional - returns undefined if not available.
+	 */
+	getBasePath?(): Promise<string | undefined>;
 }

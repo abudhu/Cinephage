@@ -61,6 +61,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			seedRatioLimit: validated.seedRatioLimit,
 			seedTimeLimit: validated.seedTimeLimit,
 			downloadPathLocal: validated.downloadPathLocal,
+			downloadPathRemote: validated.downloadPathRemote,
+			tempPathLocal: validated.tempPathLocal,
+			tempPathRemote: validated.tempPathRemote,
 			priority: validated.priority
 		});
 

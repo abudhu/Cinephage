@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { Search, X, Radio, List, ArrowUpDown, Filter, CheckSquare, Square } from 'lucide-svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { Search, X, Radio, List, ArrowUpDown, Filter, Download } from 'lucide-svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import {
 		ChannelLineupGrouped,
 		ChannelBrowseTable,
 		ChannelBulkActionBar,
 		ChannelCategoryModal,
-		ChannelEditModal
+		ChannelEditModal,
+		ExportModal
 	} from '$lib/components/livetv';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import type { PageData } from './$types';
@@ -28,7 +29,7 @@
 	// Selection state
 	let selectedLineupIds = new SvelteSet<string>();
 	let selectedBrowseKeys = new SvelteSet<string>();
-	let showCheckboxes = $state(false);
+	let categorySelections = new SvelteMap<string, string | null>();
 
 	// Reorder mode for lineup
 	let reorderMode = $state(false);
@@ -48,6 +49,9 @@
 	let editingChannel = $state<ChannelLineupItemWithAccount | null>(null);
 	let savingChannel = $state(false);
 	let channelError = $state<string | null>(null);
+
+	// Export modal state
+	let exportModalOpen = $state(false);
 
 	// Filter UI state
 	let sortDropdownOpen = $state(false);
@@ -127,7 +131,7 @@
 	$effect(() => {
 		if (!isBrowseMode) {
 			selectedBrowseKeys.clear();
-			showCheckboxes = false;
+			categorySelections.clear();
 		}
 	});
 
@@ -166,8 +170,8 @@
 		// Clear selections when switching modes
 		selectedLineupIds.clear();
 		selectedBrowseKeys.clear();
+		categorySelections.clear();
 		reorderMode = false;
-		showCheckboxes = false;
 	}
 
 	// Lineup handlers
@@ -262,12 +266,14 @@
 
 	function handleBrowseClearSelection() {
 		selectedBrowseKeys.clear();
+		categorySelections.clear();
 	}
 
-	function toggleSelectionMode() {
-		showCheckboxes = !showCheckboxes;
-		if (!showCheckboxes) {
-			selectedBrowseKeys.clear();
+	function handleCategoryChange(key: string, categoryId: string | null) {
+		if (categoryId === null) {
+			categorySelections.delete(key);
+		} else {
+			categorySelections.set(key, categoryId);
 		}
 	}
 
@@ -284,14 +290,18 @@
 			const channelsToAdd = Array.from(selectedBrowseKeys)
 				.map((key) => channelMap[key])
 				.filter((c) => c !== undefined)
-				.map((c) => ({
-					accountId: c.accountId,
-					channelId: c.id,
-					name: c.name,
-					logo: c.logo || undefined,
-					categoryId: c.categoryId || undefined,
-					categoryName: c.categoryName || undefined
-				}));
+				.map((c) => {
+					const key = `${c.accountId}:${c.id}`;
+					return {
+						accountId: c.accountId,
+						channelId: c.id,
+						name: c.name,
+						logo: c.logo || undefined,
+						categoryId: c.categoryId || undefined,
+						categoryName: c.categoryName || undefined,
+						userCategoryId: categorySelections.get(key) || undefined
+					};
+				});
 
 			const response = await fetch('/api/livetv/lineup', {
 				method: 'POST',
@@ -307,7 +317,7 @@
 			const result = await response.json();
 			await invalidateAll();
 			selectedBrowseKeys.clear();
-			showCheckboxes = false;
+			categorySelections.clear();
 
 			if (result.added > 0) {
 				toasts.success(`Added ${result.added} channel${result.added !== 1 ? 's' : ''} to lineup`);
@@ -641,19 +651,6 @@
 						{/if}
 					</div>
 
-					<!-- Selection Mode Toggle -->
-					<button
-						class="btn btn-ghost btn-sm"
-						onclick={toggleSelectionMode}
-						title={showCheckboxes ? 'Exit selection mode' : 'Enter selection mode'}
-					>
-						{#if showCheckboxes}
-							<CheckSquare class="h-4 w-4" />
-						{:else}
-							<Square class="h-4 w-4" />
-						{/if}
-					</button>
-
 					<!-- Back to Lineup -->
 					<button class="btn btn-ghost btn-sm" onclick={() => switchMode('lineup')}>
 						<List class="h-4 w-4" />
@@ -704,10 +701,12 @@
 							channels={data.channels}
 							selectedKeys={selectedBrowseKeys}
 							lineupKeys={lineupKeySet}
-							selectable={showCheckboxes}
+							categories={data.channelCategories}
+							{categorySelections}
 							onToggleSelect={handleBrowseToggleSelect}
 							onSelectAll={handleBrowseSelectAll}
 							onClearSelection={handleBrowseClearSelection}
+							onCategoryChange={handleCategoryChange}
 						/>
 					</div>
 				</div>
@@ -715,7 +714,7 @@
 		</div>
 
 		<!-- Bulk Action Bar for Browse -->
-		{#if showCheckboxes}
+		{#if selectedBrowseKeys.size > 0}
 			<ChannelBulkActionBar
 				selectedCount={selectedBrowseKeys.size}
 				loading={addingToLineup}
@@ -737,6 +736,10 @@
 				</div>
 
 				<div class="flex items-center gap-2">
+					<button class="btn btn-ghost btn-sm" onclick={() => (exportModalOpen = true)}>
+						<Download class="h-4 w-4" />
+						<span class="hidden sm:inline">Export</span>
+					</button>
 					<button class="btn btn-ghost btn-sm" onclick={() => switchMode('browse')}>
 						<Radio class="h-4 w-4" />
 						<span class="hidden sm:inline">Browse Channels</span>
@@ -793,4 +796,11 @@
 	onClose={handleCloseEditModal}
 	onSave={handleSaveChannel}
 	onDelete={handleDeleteChannel}
+/>
+
+<!-- Export Modal -->
+<ExportModal
+	open={exportModalOpen}
+	baseUrl={$page.url.origin}
+	onClose={() => (exportModalOpen = false)}
 />

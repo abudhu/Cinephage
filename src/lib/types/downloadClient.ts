@@ -59,9 +59,12 @@ export interface DownloadClient {
 	seedRatioLimit?: string | null;
 	seedTimeLimit?: number | null;
 
-	// Path mapping
+	// Path mapping (completed downloads)
 	downloadPathLocal?: string | null;
 	downloadPathRemote?: string | null;
+	// Path mapping (temp/incomplete downloads - SABnzbd only)
+	tempPathLocal?: string | null;
+	tempPathRemote?: string | null;
 
 	priority: number;
 	createdAt?: string;
@@ -88,6 +91,9 @@ export interface DownloadClientFormData {
 	seedRatioLimit: string | null;
 	seedTimeLimit: number | null;
 	downloadPathLocal: string | null;
+	downloadPathRemote: string | null;
+	tempPathLocal: string | null;
+	tempPathRemote: string | null;
 	priority: number;
 }
 
@@ -141,6 +147,11 @@ export interface ConnectionTestResult {
 		maxSeedingTimeEnabled?: boolean;
 		maxSeedingTime?: number;
 		maxRatioAction?: number;
+		// SABnzbd disk space info
+		diskSpace1?: string;
+		diskSpace2?: string;
+		diskSpaceTotal1?: string;
+		diskSpaceTotal2?: string;
 	};
 }
 
@@ -207,6 +218,9 @@ export interface UnifiedClientItem {
 	olderPriority?: string;
 	initialState?: string;
 	downloadPathLocal?: string | null;
+	downloadPathRemote?: string | null;
+	tempPathLocal?: string | null;
+	tempPathRemote?: string | null;
 	// NNTP server fields
 	maxConnections?: number | null;
 	priority?: number | null;

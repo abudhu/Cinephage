@@ -1,6 +1,11 @@
 /**
  * StalkerPortalManager - Manages Stalker Portal IPTV account configurations.
  * Provides CRUD operations, connection testing, and data fetching.
+ *
+ * Features (based on Stalkerhek patterns):
+ * - Channel caching with TTL
+ * - Watchdog lifecycle management
+ * - Active stream tracking
  */
 
 import { db } from '$lib/server/db';
@@ -19,6 +24,19 @@ import {
 	type StalkerTestResult
 } from './StalkerPortalClient';
 import type { StalkerAccountCreate, StalkerAccountUpdate } from '$lib/validation/schemas';
+
+// Channel cache TTL (5 minutes)
+const CHANNEL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Watchdog inactivity timeout (stop watchdog after this duration of no streams)
+const WATCHDOG_INACTIVITY_MS = 5 * 60 * 1000;
+
+// Cached channel data
+interface CachedChannelData {
+	channels: StalkerChannel[];
+	categories: StalkerCategory[];
+	expiresAt: number;
+}
 
 /**
  * Public account info (for API responses).
@@ -95,6 +113,15 @@ class StalkerPortalManager {
 	// Cache clients by account ID to reuse tokens
 	private clientCache: Map<string, StalkerPortalClient> = new Map();
 
+	// Channel cache by account ID
+	private channelCache: Map<string, CachedChannelData> = new Map();
+
+	// Active stream count per account (for watchdog lifecycle)
+	private activeStreamCounts: Map<string, number> = new Map();
+
+	// Watchdog inactivity timers per account
+	private inactivityTimers: Map<string, NodeJS.Timeout> = new Map();
+
 	/**
 	 * Get or create a client for an account.
 	 */
@@ -124,7 +151,100 @@ class StalkerPortalManager {
 	 * Clear cached client for an account.
 	 */
 	private clearClientCache(accountId: string): void {
+		const client = this.clientCache.get(accountId);
+		if (client) {
+			client.destroy();
+		}
 		this.clientCache.delete(accountId);
+		this.channelCache.delete(accountId);
+	}
+
+	// ========================================================================
+	// Stream Lifecycle (Watchdog Management)
+	// ========================================================================
+
+	/**
+	 * Called when a stream starts - manages watchdog lifecycle.
+	 */
+	notifyStreamStart(accountId: string): void {
+		const count = (this.activeStreamCounts.get(accountId) || 0) + 1;
+		this.activeStreamCounts.set(accountId, count);
+
+		// Clear any pending inactivity timer
+		const timer = this.inactivityTimers.get(accountId);
+		if (timer) {
+			clearTimeout(timer);
+			this.inactivityTimers.delete(accountId);
+		}
+
+		// Start watchdog if this is the first stream
+		if (count === 1) {
+			const client = this.clientCache.get(accountId);
+			if (client) {
+				client.startWatchdog();
+				logger.debug('[StalkerPortalManager] Started watchdog for account', { accountId });
+			}
+		}
+
+		logger.debug('[StalkerPortalManager] Stream started', { accountId, activeStreams: count });
+	}
+
+	/**
+	 * Called when a stream ends - manages watchdog lifecycle.
+	 */
+	notifyStreamEnd(accountId: string): void {
+		const count = Math.max(0, (this.activeStreamCounts.get(accountId) || 0) - 1);
+		this.activeStreamCounts.set(accountId, count);
+
+		logger.debug('[StalkerPortalManager] Stream ended', { accountId, activeStreams: count });
+
+		// If no more streams, start inactivity timer
+		if (count === 0) {
+			// Clear any existing timer
+			const existingTimer = this.inactivityTimers.get(accountId);
+			if (existingTimer) {
+				clearTimeout(existingTimer);
+			}
+
+			// Set new inactivity timer
+			const timer = setTimeout(() => {
+				this.stopWatchdogForAccount(accountId);
+				this.inactivityTimers.delete(accountId);
+			}, WATCHDOG_INACTIVITY_MS);
+
+			this.inactivityTimers.set(accountId, timer);
+		}
+	}
+
+	/**
+	 * Stop watchdog for an account.
+	 */
+	private stopWatchdogForAccount(accountId: string): void {
+		const client = this.clientCache.get(accountId);
+		if (client && client.isWatchdogActive()) {
+			client.stopWatchdog();
+			logger.debug('[StalkerPortalManager] Stopped watchdog for account due to inactivity', {
+				accountId
+			});
+		}
+	}
+
+	/**
+	 * Get active stream count for an account.
+	 */
+	getActiveStreamCount(accountId: string): number {
+		return this.activeStreamCounts.get(accountId) || 0;
+	}
+
+	/**
+	 * Get total active stream count across all accounts.
+	 */
+	getTotalActiveStreamCount(): number {
+		let total = 0;
+		for (const count of this.activeStreamCounts.values()) {
+			total += count;
+		}
+		return total;
 	}
 
 	// ========================================================================
@@ -319,16 +439,63 @@ class StalkerPortalManager {
 	}
 
 	/**
-	 * Get all channels from a specific account.
+	 * Get all channels from a specific account with caching.
+	 * Uses 5-minute TTL cache to reduce portal requests.
 	 */
 	async getAccountChannels(id: string): Promise<StalkerChannel[]> {
+		// Check cache first
+		const cached = this.channelCache.get(id);
+		if (cached && cached.expiresAt > Date.now()) {
+			logger.debug('[StalkerPortalManager] Using cached channels', {
+				accountId: id,
+				count: cached.channels.length
+			});
+			return cached.channels;
+		}
+
 		const account = await this.getAccountRecord(id);
 		if (!account) {
 			throw new Error('Account not found');
 		}
 
 		const client = this.getClient(account.portalUrl, account.macAddress, id);
-		return client.getAllChannels();
+		const [channels, categories] = await Promise.all([
+			client.getAllChannels(),
+			client.getCategories()
+		]);
+
+		// Cache the results
+		this.channelCache.set(id, {
+			channels,
+			categories,
+			expiresAt: Date.now() + CHANNEL_CACHE_TTL_MS
+		});
+
+		logger.debug('[StalkerPortalManager] Fetched and cached channels', {
+			accountId: id,
+			channels: channels.length,
+			categories: categories.length
+		});
+
+		return channels;
+	}
+
+	/**
+	 * Get cached categories for an account (populated when channels are fetched).
+	 */
+	getCachedCategories(id: string): StalkerCategory[] | null {
+		const cached = this.channelCache.get(id);
+		if (cached && cached.expiresAt > Date.now()) {
+			return cached.categories;
+		}
+		return null;
+	}
+
+	/**
+	 * Invalidate channel cache for an account.
+	 */
+	invalidateChannelCache(id: string): void {
+		this.channelCache.delete(id);
 	}
 
 	/**

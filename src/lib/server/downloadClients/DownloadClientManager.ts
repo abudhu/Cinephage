@@ -58,6 +58,8 @@ export interface DownloadClientInput {
 	seedTimeLimit?: number | null;
 	downloadPathLocal?: string | null;
 	downloadPathRemote?: string | null;
+	tempPathLocal?: string | null;
+	tempPathRemote?: string | null;
 	priority?: number;
 }
 
@@ -132,6 +134,8 @@ export class DownloadClientManager {
 			seedTimeLimit: input.seedTimeLimit,
 			downloadPathLocal: input.downloadPathLocal,
 			downloadPathRemote: input.downloadPathRemote,
+			tempPathLocal: input.tempPathLocal,
+			tempPathRemote: input.tempPathRemote,
 			priority: input.priority ?? 1,
 			createdAt: now,
 			updatedAt: now
@@ -167,8 +171,9 @@ export class DownloadClientManager {
 		if (updates.port !== undefined) updateData.port = updates.port;
 		if (updates.useSsl !== undefined) updateData.useSsl = updates.useSsl;
 		if (updates.username !== undefined) updateData.username = updates.username;
-		// Only update password if explicitly provided and not empty
-		if (updates.password !== undefined && updates.password !== '') {
+		// Only update password if explicitly provided with a non-empty value
+		// (null or empty string means "keep existing password")
+		if (updates.password !== undefined && updates.password !== null && updates.password !== '') {
 			updateData.password = updates.password;
 		}
 		if (updates.movieCategory !== undefined) updateData.movieCategory = updates.movieCategory;
@@ -182,11 +187,18 @@ export class DownloadClientManager {
 			updateData.downloadPathLocal = updates.downloadPathLocal;
 		if (updates.downloadPathRemote !== undefined)
 			updateData.downloadPathRemote = updates.downloadPathRemote;
+		if (updates.tempPathLocal !== undefined) updateData.tempPathLocal = updates.tempPathLocal;
+		if (updates.tempPathRemote !== undefined) updateData.tempPathRemote = updates.tempPathRemote;
 		if (updates.priority !== undefined) updateData.priority = updates.priority;
 
 		await db.update(downloadClientsTable).set(updateData).where(eq(downloadClientsTable.id, id));
 
 		// Clear cached instance so it gets recreated with new config
+		// For SABnzbd, also clear its internal config cache
+		const existingInstance = this.clientInstances.get(id);
+		if (existingInstance && 'clearConfigCache' in existingInstance) {
+			(existingInstance as { clearConfigCache: () => void }).clearConfigCache();
+		}
 		this.clientInstances.delete(id);
 
 		logger.info('Download client updated', { id });
@@ -382,6 +394,8 @@ export class DownloadClientManager {
 			seedTimeLimit: row.seedTimeLimit,
 			downloadPathLocal: row.downloadPathLocal,
 			downloadPathRemote: row.downloadPathRemote,
+			tempPathLocal: row.tempPathLocal,
+			tempPathRemote: row.tempPathRemote,
 			priority: row.priority ?? 1,
 			createdAt: row.createdAt ?? undefined,
 			updatedAt: row.updatedAt ?? undefined

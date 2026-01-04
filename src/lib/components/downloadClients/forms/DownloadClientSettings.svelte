@@ -11,7 +11,11 @@
 		olderPriority: 'normal' | 'high' | 'force';
 		initialState: 'start' | 'pause' | 'force';
 		downloadPathLocal: string;
-		onBrowse: () => void;
+		downloadPathRemote: string;
+		tempPathLocal: string;
+		tempPathRemote: string;
+		isSabnzbd: boolean;
+		onBrowse: (field: 'downloadPathLocal' | 'tempPathLocal') => void;
 	}
 
 	let {
@@ -22,6 +26,10 @@
 		olderPriority = $bindable(),
 		initialState = $bindable(),
 		downloadPathLocal = $bindable(),
+		downloadPathRemote = $bindable(),
+		tempPathLocal = $bindable(),
+		tempPathRemote = $bindable(),
+		isSabnzbd,
 		onBrowse
 	}: Props = $props();
 </script>
@@ -110,30 +118,96 @@
 <!-- Path Mapping -->
 <SectionHeader title="Path Mapping" class="mt-4" />
 
-<div class="form-control">
-	<label class="label py-1" for="downloadPathLocal">
-		<span class="label-text">Local Download Path</span>
-	</label>
-	<div class="join w-full">
-		<input
-			id="downloadPathLocal"
-			type="text"
-			class="input-bordered input input-sm join-item flex-1"
-			bind:value={downloadPathLocal}
-			placeholder="/path/to/downloads"
-		/>
-		<button
-			type="button"
-			class="btn join-item border border-base-300 btn-ghost btn-sm"
-			onclick={onBrowse}
-			title="Browse folders"
-		>
-			<FolderOpen class="h-4 w-4" />
-		</button>
+<p class="mb-2 text-xs text-base-content/60">
+	Map paths between the download client's view and your local filesystem.
+</p>
+
+<!-- Completed Downloads Path Mapping -->
+<div class="mb-3 rounded-lg bg-base-200/50 p-3">
+	<div class="mb-2 text-xs font-medium text-base-content/80">
+		{isSabnzbd ? 'Completed Download Folder' : 'Download Folder'}
 	</div>
-	<div class="label py-1">
-		<span class="label-text-alt text-xs">
-			Where downloads appear on THIS server (may differ from client's view)
-		</span>
+
+	<div class="grid grid-cols-2 gap-2">
+		<div class="form-control">
+			<label class="label py-0.5" for="downloadPathRemote">
+				<span class="label-text text-xs">Client Path</span>
+			</label>
+			<input
+				id="downloadPathRemote"
+				type="text"
+				class="input-bordered input input-xs"
+				bind:value={downloadPathRemote}
+				placeholder={isSabnzbd ? '/complete' : '/downloads'}
+			/>
+		</div>
+
+		<div class="form-control">
+			<label class="label py-0.5" for="downloadPathLocal">
+				<span class="label-text text-xs">Local Path</span>
+			</label>
+			<div class="join w-full">
+				<input
+					id="downloadPathLocal"
+					type="text"
+					class="input-bordered input input-xs join-item flex-1"
+					bind:value={downloadPathLocal}
+					placeholder="/mnt/downloads"
+				/>
+				<button
+					type="button"
+					class="btn join-item border border-base-300 btn-ghost btn-xs"
+					onclick={() => onBrowse('downloadPathLocal')}
+					title="Browse folders"
+				>
+					<FolderOpen class="h-3 w-3" />
+				</button>
+			</div>
+		</div>
 	</div>
 </div>
+
+<!-- Temp Downloads Path Mapping (SABnzbd only) -->
+{#if isSabnzbd}
+	<div class="rounded-lg bg-base-200/50 p-3">
+		<div class="mb-2 text-xs font-medium text-base-content/80">Temporary Download Folder</div>
+
+		<div class="grid grid-cols-2 gap-2">
+			<div class="form-control">
+				<label class="label py-0.5" for="tempPathRemote">
+					<span class="label-text text-xs">Client Path</span>
+				</label>
+				<input
+					id="tempPathRemote"
+					type="text"
+					class="input-bordered input input-xs"
+					bind:value={tempPathRemote}
+					placeholder="/incomplete"
+				/>
+			</div>
+
+			<div class="form-control">
+				<label class="label py-0.5" for="tempPathLocal">
+					<span class="label-text text-xs">Local Path</span>
+				</label>
+				<div class="join w-full">
+					<input
+						id="tempPathLocal"
+						type="text"
+						class="input-bordered input input-xs join-item flex-1"
+						bind:value={tempPathLocal}
+						placeholder="/mnt/incomplete"
+					/>
+					<button
+						type="button"
+						class="btn join-item border border-base-300 btn-ghost btn-xs"
+						onclick={() => onBrowse('tempPathLocal')}
+						title="Browse folders"
+					>
+						<FolderOpen class="h-3 w-3" />
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}

@@ -37,6 +37,20 @@ const POLL_INTERVAL_ACTIVE = 5_000; // 5 seconds when active downloads
 const POLL_INTERVAL_IDLE = 30_000; // 30 seconds when idle
 
 /**
+ * Import retry configuration
+ */
+const MAX_IMPORT_ATTEMPTS = 10;
+const IMPORT_RETRY_DELAY_MS = 30_000; // 30 seconds between retries
+
+/**
+ * Grace period for completed items during queue-to-history transition.
+ * SABnzbd needs extra time for post-processing (extracting large archives,
+ * moving files, running scripts) before items appear in history.
+ * Increased from 60s to 120s to handle large archive extractions.
+ */
+const COMPLETED_GRACE_PERIOD_MS = 120_000; // 2 minutes
+
+/**
  * Terminal statuses that shouldn't be updated
  */
 const TERMINAL_STATUSES: QueueStatus[] = ['imported', 'removed'];
@@ -149,6 +163,9 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 
 	// SSE clients for real-time updates
 	private sseClients: Set<(event: QueueEvent) => void> = new Set();
+
+	// Pending imports that need retry (path was invalid, waiting for SABnzbd to finish)
+	private pendingImports: Map<string, { attempts: number; lastAttempt: number }> = new Map();
 
 	private constructor() {
 		super();
@@ -498,6 +515,98 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 	}
 
 	/**
+	 * Clear failed queue items from the database.
+	 * Optionally filters by age (e.g., only clear items older than X days).
+	 *
+	 * @param options.olderThanDays - Only clear items that failed more than X days ago
+	 * @param options.dryRun - Preview what would be removed without actually removing
+	 * @returns Summary of cleared items
+	 */
+	async clearFailedItems(
+		options: {
+			olderThanDays?: number;
+			dryRun?: boolean;
+		} = {}
+	): Promise<{
+		cleared: { id: string; title: string; errorMessage?: string | null }[];
+		total: number;
+	}> {
+		const { olderThanDays, dryRun = false } = options;
+
+		logger.info('Clearing failed queue items', { olderThanDays, dryRun });
+
+		// Get all failed items
+		let failedItems = await db
+			.select()
+			.from(downloadQueue)
+			.where(eq(downloadQueue.status, 'failed'));
+
+		// Filter by age if specified
+		if (olderThanDays !== undefined && olderThanDays > 0) {
+			const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+			failedItems = failedItems.filter((item) => {
+				const failedAt = item.lastAttemptAt
+					? new Date(item.lastAttemptAt).getTime()
+					: item.addedAt
+						? new Date(item.addedAt).getTime()
+						: Date.now();
+				return failedAt < cutoff;
+			});
+		}
+
+		const result = {
+			cleared: [] as { id: string; title: string; errorMessage?: string | null }[],
+			total: failedItems.length
+		};
+
+		if (dryRun) {
+			// Just return what would be cleared
+			result.cleared = failedItems.map((item) => ({
+				id: item.id,
+				title: item.title,
+				errorMessage: item.errorMessage
+			}));
+		} else {
+			// Actually clear the items
+			for (const item of failedItems) {
+				try {
+					// Clear pending import tracking
+					this.pendingImports.delete(item.id);
+
+					// Mark as removed
+					await db
+						.update(downloadQueue)
+						.set({ status: 'removed' })
+						.where(eq(downloadQueue.id, item.id));
+
+					result.cleared.push({
+						id: item.id,
+						title: item.title,
+						errorMessage: item.errorMessage
+					});
+
+					this.emit('queue:removed', item.id);
+					this.emitSSE('queue:removed', { id: item.id });
+				} catch (error) {
+					logger.error('Failed to clear failed item', {
+						id: item.id,
+						title: item.title,
+						error: error instanceof Error ? error.message : String(error)
+					});
+				}
+			}
+		}
+
+		logger.info('Failed queue items cleared', {
+			dryRun,
+			cleared: result.cleared.length,
+			total: result.total
+		});
+
+		return result;
+	}
+
+	/**
 	 * Stop the monitoring service
 	 * Implements BackgroundService.stop()
 	 */
@@ -531,12 +640,18 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 			timestamp: new Date().toISOString()
 		};
 
+		const failedClients: Array<(event: QueueEvent) => void> = [];
 		for (const client of this.sseClients) {
 			try {
 				client(event);
 			} catch (error) {
-				logger.warn('Failed to send SSE event', { error });
+				logger.warn('Failed to send SSE event, removing client', { error });
+				failedClients.push(client);
 			}
+		}
+		// Remove failed clients to prevent accumulation
+		for (const client of failedClients) {
+			this.sseClients.delete(client);
 		}
 	}
 
@@ -632,6 +747,9 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 		// Check for and remove completed downloads that have met seeding requirements
 		// This follows Radarr's pattern of removing after seeding is done
 		await this.removeCompletedDownloads(enabledClients);
+
+		// Retry pending imports (SABnzbd items that had invalid paths on first attempt)
+		await this.retryPendingImports();
 
 		// Emit stats update
 		const stats = await this.getStats();
@@ -803,7 +921,10 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 				await this.updateQueueItem(queueItem, download, client);
 
 				// Check if just completed
-				if (!wasCompleted && download.progress >= 1 && download.status !== 'error') {
+				// IMPORTANT: Only trigger when status is 'completed' (not just progress >= 1)
+				// SABnzbd reports 100% progress during post-processing (Extracting, Moving, etc.)
+				// but status remains 'downloading' until it moves to history with 'Completed' status
+				if (!wasCompleted && download.status === 'completed') {
 					const updatedItem = await this.getQueueItem(queueItem.id);
 					if (updatedItem) {
 						this.emit('queue:completed', updatedItem);
@@ -842,10 +963,13 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 		// Use contentPath (full path to torrent folder/file) for import
 		// contentPath is the actual location of the downloaded files
 		// savePath is just the parent directory
+		// Use user-configured path mappings for both completed and temp folders
 		const outputPath = mapClientPathToLocal(
 			download.contentPath || download.savePath,
 			client.downloadPathLocal,
-			null // We could get client's default save path for more accurate mapping
+			client.downloadPathRemote ?? null,
+			client.tempPathLocal,
+			client.tempPathRemote
 		);
 
 		// Determine new status
@@ -926,9 +1050,35 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 			return;
 		}
 
-		// If it was completed/seeding and is now gone, it was removed from client
-		// (either manually or after seeding limits met)
+		// If it was completed/seeding and is now gone, it may be:
+		// 1. Transitioning from SABnzbd queue to history (need grace period)
+		// 2. Actually removed from client
 		if (queueItem.status === 'completed' || queueItem.status === 'seeding') {
+			// Check if this is a pending import - if so, don't mark as removed
+			// SABnzbd takes time to move items from queue to history
+			if (this.pendingImports.has(queueItem.id)) {
+				logger.debug('Completed download not in client but pending import retry', {
+					title: queueItem.title,
+					downloadId: queueItem.downloadId
+				});
+				return;
+			}
+
+			// Give a grace period for completed items (SABnzbd queue->history transition time)
+			const completedAt = queueItem.completedAt
+				? new Date(queueItem.completedAt).getTime()
+				: Date.now();
+			const timeSinceComplete = Date.now() - completedAt;
+
+			if (timeSinceComplete < COMPLETED_GRACE_PERIOD_MS) {
+				logger.debug('Completed download recently, waiting for client sync', {
+					title: queueItem.title,
+					timeSinceComplete,
+					gracePeriod: COMPLETED_GRACE_PERIOD_MS
+				});
+				return;
+			}
+
 			logger.info('Download removed from client after completion', {
 				title: queueItem.title,
 				clientName: client.name
@@ -991,11 +1141,71 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 	}
 
 	/**
+	 * Track a pending import that needs retry (path was invalid)
+	 */
+	private trackPendingImport(queueItemId: string, reason: string): void {
+		const existing = this.pendingImports.get(queueItemId);
+		const attempts = (existing?.attempts ?? 0) + 1;
+
+		if (attempts > MAX_IMPORT_ATTEMPTS) {
+			logger.error('Max import retry attempts reached', {
+				queueItemId,
+				attempts,
+				reason
+			});
+			this.pendingImports.delete(queueItemId);
+			this.markFailed(queueItemId, `Import failed after ${attempts} attempts: ${reason}`);
+			return;
+		}
+
+		this.pendingImports.set(queueItemId, {
+			attempts,
+			lastAttempt: Date.now()
+		});
+
+		logger.info('Tracking pending import for retry', {
+			queueItemId,
+			attempts,
+			reason
+		});
+	}
+
+	/**
+	 * Retry pending imports that are ready
+	 */
+	private async retryPendingImports(): Promise<void> {
+		const now = Date.now();
+
+		for (const [queueItemId, info] of this.pendingImports) {
+			// Skip if not ready for retry yet
+			if (now - info.lastAttempt < IMPORT_RETRY_DELAY_MS) {
+				continue;
+			}
+
+			const queueItem = await this.getQueueItem(queueItemId);
+			if (!queueItem || queueItem.status !== 'completed') {
+				// Item no longer exists or status changed
+				this.pendingImports.delete(queueItemId);
+				continue;
+			}
+
+			logger.info('Retrying pending import', {
+				queueItemId,
+				title: queueItem.title,
+				attempt: info.attempts + 1
+			});
+
+			await this.triggerImport(queueItem);
+		}
+	}
+
+	/**
 	 * Trigger import for a completed download
 	 */
 	private async triggerImport(queueItem: QueueItem): Promise<void> {
 		// Don't import if already importing/imported
 		if (queueItem.status === 'importing' || queueItem.status === 'imported') {
+			this.pendingImports.delete(queueItem.id);
 			return;
 		}
 
@@ -1005,8 +1215,36 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 				queueId: queueItem.id,
 				title: queueItem.title
 			});
+			this.trackPendingImport(queueItem.id, 'No output path');
 			return;
 		}
+
+		// Validate outputPath is not just the base download directory
+		// SABnzbd queue items return empty paths, which map to just the base directory
+		// This check prevents scanning the entire download folder
+		const manager = getDownloadClientManager();
+		const clients = await manager.getEnabledClients();
+		const client = clients.find((c) => c.client.id === queueItem.downloadClientId);
+
+		if (client?.client.downloadPathLocal) {
+			const basePath = client.client.downloadPathLocal.replace(/\/+$/, '');
+			const outputPath = queueItem.outputPath.replace(/\/+$/, '');
+
+			// If outputPath equals the base path (or is shorter), it's invalid
+			if (outputPath === basePath || outputPath.length <= basePath.length) {
+				logger.warn('Cannot import: outputPath is just the base directory (files not ready)', {
+					queueId: queueItem.id,
+					title: queueItem.title,
+					outputPath: queueItem.outputPath,
+					basePath: client.client.downloadPathLocal
+				});
+				this.trackPendingImport(queueItem.id, 'Invalid path - waiting for SABnzbd');
+				return;
+			}
+		}
+
+		// Path is valid, clear from pending
+		this.pendingImports.delete(queueItem.id);
 
 		logger.info('Triggering import for completed download', {
 			queueId: queueItem.id,
@@ -1234,6 +1472,9 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 				}
 			}
 		}
+
+		// Clear pending import tracking if exists
+		this.pendingImports.delete(id);
 
 		// Update status to removed
 		await db.update(downloadQueue).set({ status: 'removed' }).where(eq(downloadQueue.id, id));

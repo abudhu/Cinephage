@@ -39,7 +39,7 @@ class ChannelSyncService {
 	 * Sync a single account's channels with the lineup.
 	 */
 	async syncAccount(accountId: string, options: SyncOptions = {}): Promise<SyncResult> {
-		const { addNewChannels = true, removeStaleChannels = true, updateMetadata = true } = options;
+		const { addNewChannels = false, removeStaleChannels = false, updateMetadata = true } = options;
 
 		const now = new Date().toISOString();
 		const result: SyncResult = {

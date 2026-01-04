@@ -1,25 +1,31 @@
 <script lang="ts">
 	import { Tv, Check, Radio } from 'lucide-svelte';
-	import type { StalkerChannelWithAccount } from '$lib/types/livetv';
+	import type { StalkerChannelWithAccount, ChannelCategory } from '$lib/types/livetv';
 
 	interface Props {
 		channels: StalkerChannelWithAccount[];
 		selectedKeys: Set<string>;
 		lineupKeys: Set<string>;
+		categories: ChannelCategory[];
+		categorySelections: Map<string, string | null>;
 		selectable?: boolean;
 		onToggleSelect: (key: string) => void;
 		onSelectAll: () => void;
 		onClearSelection: () => void;
+		onCategoryChange: (key: string, categoryId: string | null) => void;
 	}
 
 	let {
 		channels,
 		selectedKeys,
 		lineupKeys,
+		categories,
+		categorySelections,
 		selectable = true,
 		onToggleSelect,
 		onSelectAll,
-		onClearSelection
+		onClearSelection,
+		onCategoryChange
 	}: Props = $props();
 
 	// Virtual scrolling configuration
@@ -206,9 +212,25 @@
 							</div>
 						</td>
 						<td class="overflow-hidden py-2">
-							<span class="badge max-w-full truncate badge-ghost badge-sm"
-								>{channel.categoryName}</span
-							>
+							{#if inLineup}
+								<span class="badge max-w-full truncate badge-ghost badge-sm"
+									>{channel.categoryName}</span
+								>
+							{:else}
+								<select
+									class="select w-full max-w-[140px] bg-base-200 select-xs"
+									value={categorySelections.get(key) ?? ''}
+									onchange={(e) => {
+										const val = e.currentTarget.value;
+										onCategoryChange(key, val === '' ? null : val);
+									}}
+								>
+									<option value="">No category</option>
+									{#each categories as cat (cat.id)}
+										<option value={cat.id}>{cat.name}</option>
+									{/each}
+								</select>
+							{/if}
 						</td>
 						<td class="overflow-hidden py-2">
 							<span

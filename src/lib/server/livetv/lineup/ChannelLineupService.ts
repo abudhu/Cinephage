@@ -55,6 +55,7 @@ function toLineupItem(
 		cachedLogo: record.cachedLogo,
 		cachedCategoryId: record.cachedCategoryId,
 		cachedCategoryName: record.cachedCategoryName,
+		cachedCmd: record.cachedCmd,
 		customName: record.customName,
 		customLogo: record.customLogo,
 		epgId: record.epgId,
@@ -181,6 +182,7 @@ class ChannelLineupService {
 				cachedLogo: channel.logo || null,
 				cachedCategoryId: channel.categoryId || null,
 				cachedCategoryName: channel.categoryName || null,
+				categoryId: channel.userCategoryId || null,
 				addedAt: now,
 				updatedAt: now
 			});

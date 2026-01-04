@@ -27,10 +27,19 @@ export type SabnzbdDownloadStatus =
 
 /**
  * SABnzbd priority levels.
- * -100 = Default, -3 = Duplicate, -2 = Paused, -1 = Low, 0 = Normal, 1 = High, 2 = Force
+ * Per SABnzbd API documentation:
+ * -100 = Default (use category default)
+ * -4 = Stop
+ * -3 = Duplicate
+ * -2 = Paused
+ * -1 = Low
+ * 0 = Normal
+ * 1 = High
+ * 2 = Force
  */
 export enum SabnzbdPriority {
 	Default = -100,
+	Stop = -4,
 	Duplicate = -3,
 	Paused = -2,
 	Low = -1,
@@ -106,7 +115,7 @@ export interface SabnzbdHistoryItem {
 	category: string;
 	/** Final storage path (may be empty/incomplete during post-processing) */
 	storage: string;
-	/** Alternative path field */
+	/** Alternative path field (temporary destination) */
 	path?: string;
 	/** Size in bytes */
 	bytes: number;
@@ -128,6 +137,10 @@ export interface SabnzbdHistoryItem {
 	archive?: boolean;
 	/** Archive extraction password used */
 	password?: string;
+	/** If true, item is currently post-processing (per SABnzbd API docs) */
+	loaded?: boolean;
+	/** Unix timestamp when the job was added to the queue */
+	time_added?: number;
 }
 
 /**
@@ -322,6 +335,25 @@ export interface SabnzbdFullStatus {
  */
 export interface SabnzbdFullStatusResponse {
 	status: SabnzbdFullStatus;
+}
+
+/**
+ * SABnzbd warning entry.
+ */
+export interface SabnzbdWarning {
+	/** Warning type (e.g., 'ERROR', 'WARNING') */
+	type: string;
+	/** Warning text */
+	text: string;
+	/** Timestamp */
+	time: number;
+}
+
+/**
+ * SABnzbd warnings response.
+ */
+export interface SabnzbdWarningsResponse {
+	warnings: SabnzbdWarning[];
 }
 
 /**

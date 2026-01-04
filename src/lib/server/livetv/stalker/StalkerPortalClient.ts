@@ -3,13 +3,21 @@
  *
  * Handles authentication via MAC address handshake and provides methods
  * to fetch account info, categories, and channels from Stalker Portal servers.
+ *
+ * Features (based on Stalkerhek patterns):
+ * - Watchdog keepalive to maintain sessions
+ * - Session expiration detection with auto re-auth
+ * - Stream link caching with TTL
+ * - Proper device headers
  */
 
 import { logger } from '$lib/logging';
+import { withRetry, DEFAULT_RETRY_CONFIG, SessionExpiredError } from '../proxy/StalkerRetry';
 
 export interface StalkerPortalConfig {
 	portalUrl: string;
 	macAddress: string;
+	serialNumber?: string;
 }
 
 interface StalkerToken {
@@ -80,17 +88,101 @@ export interface StalkerEpgData {
 
 // User agent that mimics MAG STB devices
 const STB_USER_AGENT =
-	'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3';
+	'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 4 rev: 2116 Mobile Safari/533.3';
 
-// Token validity duration (refresh 5 minutes before expiry)
-const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+// Token validity duration (refresh 2 minutes before expiry - tighter margin)
+const TOKEN_REFRESH_MARGIN_MS = 2 * 60 * 1000;
+
+// Watchdog interval (5 minutes - keeps session alive)
+const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000;
+
+// Stream link cache TTL (30s for HLS, 5s for media - from Stalkerhek)
+const STREAM_LINK_HLS_TTL_MS = 30 * 1000;
+const STREAM_LINK_MEDIA_TTL_MS = 5 * 1000;
+
+// Cached stream link entry
+interface CachedStreamLink {
+	url: string;
+	expiresAt: number;
+	isHls: boolean;
+}
 
 export class StalkerPortalClient {
 	private config: StalkerPortalConfig;
 	private token: StalkerToken | null = null;
+	private watchdogTimer: NodeJS.Timeout | null = null;
+	private streamLinkCache: Map<string, CachedStreamLink> = new Map();
+	private isReauthenticating = false;
 
 	constructor(config: StalkerPortalConfig) {
 		this.config = config;
+	}
+
+	/**
+	 * Start watchdog keepalive timer.
+	 * Call this when streams are active to prevent session expiration.
+	 */
+	startWatchdog(): void {
+		if (this.watchdogTimer) return;
+
+		logger.debug('[StalkerPortalClient] Starting watchdog');
+
+		// Send initial watchdog
+		this.sendWatchdog().catch((error) => {
+			logger.warn('[StalkerPortalClient] Initial watchdog failed', {
+				error: error instanceof Error ? error.message : 'Unknown'
+			});
+		});
+
+		// Schedule periodic watchdog
+		this.watchdogTimer = setInterval(() => {
+			this.sendWatchdog().catch((error) => {
+				logger.warn('[StalkerPortalClient] Watchdog failed, will re-auth on next request', {
+					error: error instanceof Error ? error.message : 'Unknown'
+				});
+				// Clear token to force re-auth on next request
+				this.token = null;
+			});
+		}, WATCHDOG_INTERVAL_MS);
+	}
+
+	/**
+	 * Stop watchdog keepalive timer.
+	 * Call this when no streams are active.
+	 */
+	stopWatchdog(): void {
+		if (this.watchdogTimer) {
+			clearInterval(this.watchdogTimer);
+			this.watchdogTimer = null;
+			logger.debug('[StalkerPortalClient] Stopped watchdog');
+		}
+	}
+
+	/**
+	 * Send watchdog request to keep session alive.
+	 * Based on Stalkerhek's watchdogUpdate function.
+	 */
+	private async sendWatchdog(): Promise<void> {
+		await this.ensureToken();
+
+		const url = `${this.getPortalBaseUrl()}?action=get_events&event_active_id=0&init=0&type=watchdog&cur_play_type=1&JsHttpRequest=1-xml`;
+
+		const response = await fetch(url, {
+			method: 'GET',
+			headers: this.getHeaders(true)
+		});
+
+		if (!response.ok) {
+			throw new Error(`Watchdog failed: HTTP ${response.status}`);
+		}
+
+		// Parse response to validate session
+		const data = await response.json();
+		if (!data?.js) {
+			throw new SessionExpiredError('Watchdog response invalid');
+		}
+
+		logger.debug('[StalkerPortalClient] Watchdog sent');
 	}
 
 	/**
@@ -121,12 +213,20 @@ export class StalkerPortalClient {
 	}
 
 	/**
-	 * Build common headers for requests
+	 * Build common headers for requests.
+	 * Includes X-User-Agent required by some portals (from Stalkerhek).
 	 */
 	private getHeaders(includeAuth: boolean = false): Record<string, string> {
+		// Build cookie with optional serial number
+		let cookie = `mac=${this.getEncodedMac()}; timezone=UTC; stb_lang=en`;
+		if (this.config.serialNumber) {
+			cookie += `; sn=${encodeURIComponent(this.config.serialNumber)}`;
+		}
+
 		const headers: Record<string, string> = {
 			'User-Agent': STB_USER_AGENT,
-			Cookie: `mac=${this.getEncodedMac()}; timezone=UTC; stb_lang=en`
+			'X-User-Agent': 'Model: MAG250; Link: WiFi', // Required by some portals
+			Cookie: cookie
 		};
 
 		if (includeAuth && this.token) {
@@ -195,12 +295,14 @@ export class StalkerPortalClient {
 	}
 
 	/**
-	 * Make an authenticated API request
+	 * Make an authenticated API request with session expiration detection.
+	 * Based on Stalkerhek pattern: JSON parse errors indicate expired sessions.
 	 */
 	private async apiRequest<T>(
 		type: string,
 		action: string,
-		params: Record<string, string> = {}
+		params: Record<string, string> = {},
+		allowRetry: boolean = true
 	): Promise<T> {
 		await this.ensureToken();
 
@@ -222,7 +324,29 @@ export class StalkerPortalClient {
 			throw new Error(`API request failed: HTTP ${response.status}`);
 		}
 
-		const data = await response.json();
+		// Try to parse JSON - parse errors often indicate session expiry
+		let data;
+		try {
+			data = await response.json();
+		} catch (_error) {
+			// JSON parse error = likely session expired (Stalkerhek pattern)
+			if (allowRetry && !this.isReauthenticating) {
+				logger.info('[StalkerPortalClient] JSON parse error, re-authenticating');
+				await this.reauthenticate();
+				return this.apiRequest<T>(type, action, params, false);
+			}
+			throw new SessionExpiredError('Failed to parse portal response');
+		}
+
+		// Check for session expiration indicators
+		if (this.isSessionExpiredResponse(data)) {
+			if (allowRetry && !this.isReauthenticating) {
+				logger.info('[StalkerPortalClient] Session expired, re-authenticating');
+				await this.reauthenticate();
+				return this.apiRequest<T>(type, action, params, false);
+			}
+			throw new SessionExpiredError('Session expired');
+		}
 
 		// Handle Stalker Portal error responses
 		if (data?.js?.error) {
@@ -230,6 +354,50 @@ export class StalkerPortalClient {
 		}
 
 		return data?.js as T;
+	}
+
+	/**
+	 * Check if response indicates session expiration.
+	 */
+	private isSessionExpiredResponse(data: unknown): boolean {
+		if (!data || typeof data !== 'object') return true;
+
+		const obj = data as Record<string, unknown>;
+
+		// Empty js object often indicates session expiry
+		if (obj.js === null || obj.js === undefined) return true;
+		if (typeof obj.js === 'object' && Object.keys(obj.js as object).length === 0) return true;
+
+		// Check for specific error messages
+		if (obj.js && typeof obj.js === 'object') {
+			const js = obj.js as Record<string, unknown>;
+			if (typeof js.error === 'string') {
+				const error = js.error.toLowerCase();
+				if (error.includes('session') || error.includes('token') || error.includes('auth')) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Re-authenticate by clearing token and performing handshake.
+	 */
+	private async reauthenticate(): Promise<void> {
+		if (this.isReauthenticating) return;
+
+		try {
+			this.isReauthenticating = true;
+			this.token = null;
+			this.streamLinkCache.clear();
+
+			logger.info('[StalkerPortalClient] Re-authenticating');
+			await this.handshake();
+		} finally {
+			this.isReauthenticating = false;
+		}
 	}
 
 	/**
@@ -376,26 +544,95 @@ export class StalkerPortalClient {
 	}
 
 	/**
-	 * Get stream URL for a channel
+	 * Get stream URL for a channel with caching.
+	 * Uses TTL-based cache (30s for HLS, 5s for media) from Stalkerhek.
+	 *
+	 * Important: The cmd from get_all_channels may contain a full URL with an
+	 * embedded play_token, but this token expires quickly. We must always call
+	 * create_link to get a fresh token.
+	 *
+	 * create_link expects a reference format: "ffrt http://localhost/ch/{channelId}"
+	 * If given a full URL, it returns broken responses with empty stream parameter.
 	 */
 	async getStreamUrl(cmd: string): Promise<string> {
-		const data = await this.apiRequest<{
-			cmd: string;
-		}>('itv', 'create_link', {
-			cmd: cmd // URLSearchParams already encodes, don't double-encode
+		// Check cache first
+		const cached = this.streamLinkCache.get(cmd);
+		if (cached && cached.expiresAt > Date.now()) {
+			logger.debug('[StalkerPortalClient] Using cached stream URL', { cmd: cmd.substring(0, 50) });
+			return cached.url;
+		}
+
+		// Determine the command to send to create_link
+		let createLinkCmd = cmd;
+
+		// If cmd is a full URL (from get_all_channels), extract channel ID and use reference format
+		// Full URL format: "ffmpeg http://host/play/live.php?...&stream=12345&..."
+		if (cmd.startsWith('ffmpeg http://') || cmd.startsWith('ffmpeg https://')) {
+			const streamMatch = cmd.match(/[&?]stream=(\d+)/);
+			if (streamMatch) {
+				const channelId = streamMatch[1];
+				// Use the reference format that create_link expects
+				createLinkCmd = `ffrt http://localhost/ch/${channelId}`;
+				logger.debug('[StalkerPortalClient] Converted full URL to reference format', {
+					channelId,
+					originalCmd: cmd.substring(0, 60)
+				});
+			}
+		}
+
+		// Fetch fresh URL from create_link with retry
+		const url = await withRetry(DEFAULT_RETRY_CONFIG, async () => {
+			const data = await this.apiRequest<{
+				cmd: string;
+			}>('itv', 'create_link', {
+				cmd: createLinkCmd
+			});
+
+			if (!data?.cmd) {
+				throw new Error('Failed to get stream URL');
+			}
+
+			// Stream URL is typically in format "ffmpeg http://..."
+			let streamUrl = data.cmd;
+			if (streamUrl.startsWith('ffmpeg ')) {
+				streamUrl = streamUrl.substring(7);
+			}
+
+			return streamUrl;
 		});
 
-		if (!data?.cmd) {
-			throw new Error('Failed to get stream URL');
-		}
+		// Determine TTL based on URL pattern
+		const isHls = url.includes('.m3u8') || url.includes('/playlist');
+		const ttl = isHls ? STREAM_LINK_HLS_TTL_MS : STREAM_LINK_MEDIA_TTL_MS;
 
-		// Stream URL is typically in format "ffmpeg http://..."
-		let streamUrl = data.cmd;
-		if (streamUrl.startsWith('ffmpeg ')) {
-			streamUrl = streamUrl.substring(7);
-		}
+		// Cache the URL
+		this.streamLinkCache.set(cmd, {
+			url,
+			expiresAt: Date.now() + ttl,
+			isHls
+		});
 
-		return streamUrl;
+		logger.debug('[StalkerPortalClient] Cached stream URL', {
+			cmd: cmd.substring(0, 50),
+			isHls,
+			ttlMs: ttl
+		});
+
+		return url;
+	}
+
+	/**
+	 * Clear stream link cache.
+	 */
+	clearStreamLinkCache(): void {
+		this.streamLinkCache.clear();
+	}
+
+	/**
+	 * Check if watchdog is running.
+	 */
+	isWatchdogActive(): boolean {
+		return this.watchdogTimer !== null;
 	}
 
 	/**
@@ -600,9 +837,20 @@ export class StalkerPortalClient {
 	}
 
 	/**
-	 * Clear cached token (useful when credentials change)
+	 * Clear cached token and stream links (useful when credentials change)
 	 */
 	clearToken(): void {
+		this.token = null;
+		this.streamLinkCache.clear();
+		this.stopWatchdog();
+	}
+
+	/**
+	 * Cleanup resources (call on shutdown)
+	 */
+	destroy(): void {
+		this.stopWatchdog();
+		this.streamLinkCache.clear();
 		this.token = null;
 	}
 }

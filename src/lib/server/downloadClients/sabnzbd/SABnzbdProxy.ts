@@ -1,18 +1,28 @@
 /**
  * SABnzbdProxy - Handles all HTTP communication with SABnzbd API.
- * Follows the pattern from Prowlarr's SabnzbdProxy.cs.
+ *
+ * Optimized for SABnzbd API features:
+ * - Uses nzo_ids filter for efficient single-item lookups
+ * - Supports last_history_update for incremental polling
+ * - Uses get_cats for lightweight category fetching
+ * - Implements exponential backoff for retries
  */
 
 import { logger } from '$lib/logging';
+import { randomUUID } from 'node:crypto';
 
 /** Default timeout for SABnzbd API requests in milliseconds */
-const API_TIMEOUT_MS = 20_000; // 20 seconds (increased for reliability)
+const API_TIMEOUT_MS = 20_000; // 20 seconds
 
 /** Extended timeout for file uploads */
 const UPLOAD_TIMEOUT_MS = 45_000; // 45 seconds
 
 /** Maximum retry attempts for transient failures */
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3;
+
+/** Base delay for exponential backoff (doubles each retry) */
+const RETRY_BASE_DELAY_MS = 1000;
+
 import type {
 	SabnzbdSettings,
 	SabnzbdAddResponse,
@@ -23,7 +33,9 @@ import type {
 	SabnzbdVersionResponse,
 	SabnzbdFullStatus,
 	SabnzbdFullStatusResponse,
-	SabnzbdErrorResponse
+	SabnzbdErrorResponse,
+	SabnzbdWarning,
+	SabnzbdWarningsResponse
 } from './types';
 
 /**
@@ -57,8 +69,22 @@ export interface AddNzbOptions {
 export class SABnzbdProxy {
 	private settings: SabnzbdSettings;
 
+	/**
+	 * Timestamp of last history update from SABnzbd.
+	 * Used for incremental polling - SABnzbd returns empty response if nothing changed.
+	 */
+	private lastHistoryUpdate: number = 0;
+
 	constructor(settings: SabnzbdSettings) {
 		this.settings = settings;
+	}
+
+	/**
+	 * Reset incremental polling state.
+	 * Call this when you want to force a full refresh.
+	 */
+	resetPollingState(): void {
+		this.lastHistoryUpdate = 0;
 	}
 
 	/**
@@ -102,38 +128,135 @@ export class SABnzbdProxy {
 	}
 
 	/**
-	 * Get the download queue.
-	 * Uses retry logic for reliability during heavy load.
+	 * Get SABnzbd warnings/alerts.
+	 * Returns list of warnings (disk space, server issues, incomplete downloads, etc.)
 	 */
-	async getQueue(start: number = 0, limit: number = 100): Promise<SabnzbdQueue> {
+	async getWarnings(): Promise<SabnzbdWarning[]> {
+		const response = await this.executeRequest<SabnzbdWarningsResponse>('warnings');
+		return response.warnings || [];
+	}
+
+	/**
+	 * Clear all SABnzbd warnings.
+	 */
+	async clearWarnings(): Promise<void> {
+		const params = new URLSearchParams();
+		params.set('value', 'clear');
+		await this.executeRequest<unknown>('warnings', params);
+	}
+
+	/**
+	 * Get current speed limit.
+	 * Returns the limit as a percentage (0-100) or KB/s value.
+	 */
+	async getSpeedLimit(): Promise<number> {
+		const status = await this.getFullStatus();
+		return status.speedlimit || 0;
+	}
+
+	/**
+	 * Set download speed limit.
+	 * @param value - Percentage (0-100), or absolute value with suffix (e.g., "500K", "1M")
+	 *                Pass 0 or empty string to remove limit.
+	 */
+	async setSpeedLimit(value: number | string): Promise<void> {
+		const params = new URLSearchParams();
+		params.set('name', 'speedlimit');
+		params.set('value', String(value));
+		await this.executeRequest<unknown>('config', params, 'POST');
+	}
+
+	/**
+	 * Get available categories using lightweight get_cats endpoint.
+	 * Much faster than fetching full config.
+	 */
+	async getCategories(): Promise<string[]> {
+		const response = await this.executeRequest<{ categories: string[] }>('get_cats');
+		return response.categories || [];
+	}
+
+	/**
+	 * Get the download queue.
+	 * Supports efficient filtering by nzo_ids for single-item lookups.
+	 *
+	 * @param start - Starting index for pagination
+	 * @param limit - Maximum items to return
+	 * @param nzoIds - Optional: Only return items with these IDs (comma-separated or array)
+	 */
+	async getQueue(
+		start: number = 0,
+		limit: number = 100,
+		nzoIds?: string | string[]
+	): Promise<SabnzbdQueue> {
 		const params = new URLSearchParams();
 		params.set('start', start.toString());
 		params.set('limit', limit.toString());
+
+		// Use nzo_ids filter for efficient single-item or batch lookups
+		if (nzoIds) {
+			const ids = Array.isArray(nzoIds) ? nzoIds.join(',') : nzoIds;
+			params.set('nzo_ids', ids);
+		}
 
 		const response = await this.executeRequestWithRetry<{ queue: SabnzbdQueue }>('queue', params);
 		return response.queue;
 	}
 
 	/**
-	 * Get download history.
-	 * Uses retry logic for reliability during heavy load.
+	 * Get download history with support for incremental polling.
+	 *
+	 * When useIncremental is true:
+	 * - Uses last_history_update parameter to only fetch if something changed
+	 * - Returns null if nothing has changed since last call
+	 * - Much more efficient for polling scenarios
+	 *
+	 * @param start - Starting index for pagination
+	 * @param limit - Maximum items to return
+	 * @param category - Optional category filter
+	 * @param nzoIds - Optional: Only return items with these IDs
+	 * @param useIncremental - If true, use incremental polling (returns null if unchanged)
 	 */
 	async getHistory(
 		start: number = 0,
 		limit: number = 100,
-		category?: string
-	): Promise<SabnzbdHistory> {
+		category?: string,
+		nzoIds?: string | string[],
+		useIncremental: boolean = false
+	): Promise<SabnzbdHistory | null> {
 		const params = new URLSearchParams();
 		params.set('start', start.toString());
 		params.set('limit', limit.toString());
+
 		if (category) {
 			params.set('category', category);
 		}
 
-		const response = await this.executeRequestWithRetry<{ history: SabnzbdHistory }>(
-			'history',
-			params
-		);
+		// Use nzo_ids filter for efficient lookups
+		if (nzoIds) {
+			const ids = Array.isArray(nzoIds) ? nzoIds.join(',') : nzoIds;
+			params.set('nzo_ids', ids);
+		}
+
+		// Use incremental polling if enabled and we have a previous timestamp
+		if (useIncremental && this.lastHistoryUpdate > 0) {
+			params.set('last_history_update', this.lastHistoryUpdate.toString());
+		}
+
+		const response = await this.executeRequestWithRetry<{
+			history: SabnzbdHistory & { last_history_update?: number };
+		}>('history', params);
+
+		// Update our tracking timestamp if provided
+		if (response.history.last_history_update) {
+			this.lastHistoryUpdate = response.history.last_history_update;
+		}
+
+		// If using incremental and nothing changed, SABnzbd returns empty slots
+		// We detect this by checking if we got an update timestamp but no slots
+		if (useIncremental && response.history.slots.length === 0 && this.lastHistoryUpdate > 0) {
+			return null; // Nothing changed
+		}
+
 		return response.history;
 	}
 
@@ -255,6 +378,24 @@ export class SABnzbdProxy {
 	}
 
 	/**
+	 * Set password for an encrypted archive in the queue.
+	 * @param id - The nzo_id of the download
+	 * @param password - The archive password
+	 */
+	async setPassword(id: string, password: string): Promise<void> {
+		const params = new URLSearchParams();
+		params.set('name', 'rename');
+		params.set('value', id);
+		// value2 is the new name (empty to keep current)
+		params.set('value2', '');
+		// value3 is the password
+		params.set('value3', password);
+
+		await this.executeRequest<unknown>('queue', params);
+		logger.debug('[SABnzbd] Password set for download', { id });
+	}
+
+	/**
 	 * Retry a failed download from history.
 	 */
 	async retry(id: string): Promise<string | undefined> {
@@ -270,19 +411,40 @@ export class SABnzbdProxy {
 
 	/**
 	 * Get a single queue item by ID.
+	 * Uses nzo_ids filter for efficient server-side lookup instead of fetching entire queue.
 	 */
 	async getQueueItem(id: string): Promise<SabnzbdQueue['slots'][0] | undefined> {
-		const queue = await this.getQueue(0, 1000);
-		return queue.slots.find((item) => item.nzo_id === id);
+		// Use nzo_ids filter - SABnzbd returns only the matching item
+		const queue = await this.getQueue(0, 1, id);
+		return queue.slots[0];
 	}
 
 	/**
 	 * Get a single history item by ID.
+	 * Uses nzo_ids filter for efficient server-side lookup instead of fetching entire history.
 	 */
 	async getHistoryItem(id: string): Promise<SabnzbdHistory['slots'][0] | undefined> {
-		// Check history - SABnzbd doesn't have a direct lookup, so we search
-		const history = await this.getHistory(0, 100);
-		return history.slots.find((item) => item.nzo_id === id);
+		// Use nzo_ids filter - SABnzbd returns only the matching item
+		const history = await this.getHistory(0, 1, undefined, id);
+		return history?.slots[0];
+	}
+
+	/**
+	 * Get multiple queue/history items by ID in a single request.
+	 * More efficient than multiple individual lookups.
+	 */
+	async getItemsByIds(ids: string[]): Promise<{
+		queue: SabnzbdQueue['slots'];
+		history: SabnzbdHistory['slots'];
+	}> {
+		const [queue, history] = await Promise.all([
+			this.getQueue(0, ids.length, ids),
+			this.getHistory(0, ids.length, undefined, ids)
+		]);
+		return {
+			queue: queue.slots,
+			history: history?.slots || []
+		};
 	}
 
 	/**
@@ -368,9 +530,60 @@ export class SABnzbdProxy {
 	}
 
 	/**
-	 * Execute a multipart form request (for file uploads).
+	 * Execute a multipart form request (for file uploads) with retry logic.
+	 * Uses exponential backoff for transient failures (timeouts, server errors).
 	 */
 	private async executeMultipartRequest(
+		mode: string,
+		additionalParams: URLSearchParams,
+		file: { name: string; filename: string; data: Buffer; contentType: string },
+		fields?: Record<string, string>
+	): Promise<unknown> {
+		let lastError: Error | null = null;
+
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				return await this.executeMultipartRequestOnce(mode, additionalParams, file, fields);
+			} catch (error) {
+				lastError = error instanceof Error ? error : new Error(String(error));
+
+				// Don't retry on auth errors or client errors (4xx)
+				if (lastError instanceof SabnzbdApiError && lastError.statusCode) {
+					if (lastError.statusCode >= 400 && lastError.statusCode < 500) {
+						throw lastError;
+					}
+				}
+
+				// Log retry attempt with exponential backoff
+				if (attempt < MAX_RETRIES) {
+					const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+					logger.warn('[SABnzbd] Upload failed, retrying with backoff', {
+						mode,
+						filename: file.filename,
+						attempt: attempt + 1,
+						maxRetries: MAX_RETRIES,
+						delayMs,
+						error: lastError.message
+					});
+					await new Promise((r) => setTimeout(r, delayMs));
+				}
+			}
+		}
+
+		logger.error('[SABnzbd] Upload failed after all retries', {
+			mode,
+			filename: file.filename,
+			totalAttempts: MAX_RETRIES + 1,
+			error: lastError?.message
+		});
+
+		throw lastError!;
+	}
+
+	/**
+	 * Execute a single multipart form request attempt.
+	 */
+	private async executeMultipartRequestOnce(
 		mode: string,
 		additionalParams: URLSearchParams,
 		file: { name: string; filename: string; data: Buffer; contentType: string },
@@ -386,8 +599,9 @@ export class SABnzbdProxy {
 
 		logger.debug('[SABnzbd] Multipart request', { mode, filename: file.filename });
 
-		// Build multipart form data
-		const boundary = '----FormBoundary' + Math.random().toString(36).substring(2);
+		// Build multipart form data with cryptographically secure boundary
+		// Using crypto.randomUUID() instead of Math.random() to avoid boundary collisions
+		const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`;
 		const parts: Buffer[] = [];
 
 		// Add file part
@@ -486,7 +700,9 @@ export class SABnzbdProxy {
 
 	/**
 	 * Execute a request with retry logic for transient failures.
-	 * Retries on timeout or server errors (5xx), not on client errors (4xx).
+	 * Uses exponential backoff: 1s, 2s, 4s, etc.
+	 * Retries on timeout, server errors (5xx), or rate limiting (429).
+	 * Does not retry on other client errors (4xx except 429).
 	 */
 	private async executeRequestWithRetry<T>(
 		mode: string,
@@ -501,27 +717,52 @@ export class SABnzbdProxy {
 			} catch (error) {
 				lastError = error instanceof Error ? error : new Error(String(error));
 
-				// Don't retry on auth errors or client errors (4xx)
+				// Check if we should retry based on error type
 				if (lastError instanceof SabnzbdApiError && lastError.statusCode) {
+					// 429 Too Many Requests - retry with longer backoff
+					if (lastError.statusCode === 429) {
+						logger.warn('[SABnzbd] Rate limited (429), will retry with longer backoff', {
+							mode,
+							attempt: attempt + 1
+						});
+						// Use longer backoff for rate limiting: 5s, 10s, 20s, 40s
+						if (attempt < MAX_RETRIES) {
+							const delayMs = 5000 * Math.pow(2, attempt);
+							await new Promise((r) => setTimeout(r, delayMs));
+							continue;
+						}
+					}
+					// Don't retry on other client errors (4xx except 429)
 					if (lastError.statusCode >= 400 && lastError.statusCode < 500) {
 						throw lastError;
 					}
 				}
 
-				// Log retry attempt
+				// Log retry attempt with exponential backoff
 				if (attempt < MAX_RETRIES) {
-					const delayMs = 1000 * (attempt + 1);
-					logger.debug('[SABnzbd] Request failed, retrying...', {
+					// Exponential backoff: 1s, 2s, 4s, 8s...
+					const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+					logger.warn('[SABnzbd] Request failed, retrying with backoff', {
 						mode,
 						attempt: attempt + 1,
 						maxRetries: MAX_RETRIES,
 						delayMs,
+						nextAttemptIn: `${delayMs / 1000}s`,
 						error: lastError.message
 					});
 					await new Promise((r) => setTimeout(r, delayMs));
 				}
 			}
 		}
+
+		// Log final failure with full context
+		logger.error('[SABnzbd] Request failed after all retries', {
+			mode,
+			totalAttempts: MAX_RETRIES + 1,
+			error: lastError?.message,
+			host: this.settings.host,
+			port: this.settings.port
+		});
 
 		throw lastError!;
 	}

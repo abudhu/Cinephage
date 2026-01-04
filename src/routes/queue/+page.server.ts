@@ -30,13 +30,14 @@ export const load: PageServerLoad = async ({ url, setHeaders }) => {
 		'Cache-Control': 'no-cache, no-store, must-revalidate'
 	});
 
-	// Force a poll to get fresh data from download clients
-	try {
-		await downloadMonitor.forcePoll();
-	} catch (e) {
-		// Ignore poll errors, still show cached data
-		logger.error('Failed to poll download clients', e instanceof Error ? e : undefined);
-	}
+	// Trigger a poll to get fresh data from download clients
+	// Don't await - this runs in the background so page loads immediately with cached data
+	// The SSE connection will receive updates when the poll completes
+	downloadMonitor.forcePoll().catch((e) => {
+		logger.warn('Background poll of download clients failed', {
+			error: e instanceof Error ? e.message : String(e)
+		});
+	});
 
 	// Parse queue filters
 	const statusParam = url.searchParams.get('status') as QueueStatus | 'all' | null;
@@ -367,7 +368,7 @@ export const actions: Actions = {
 		}
 	},
 
-	retry: async ({ request }) => {
+	retry: async ({ request, fetch }) => {
 		const data = await request.formData();
 		const id = data.get('id');
 
@@ -376,15 +377,18 @@ export const actions: Actions = {
 		}
 
 		try {
-			// Reset status to 'completed' so import service picks it up again
-			await db
-				.update(downloadQueue)
-				.set({
-					status: 'completed',
-					errorMessage: null,
-					importAttempts: 0
-				})
-				.where(eq(downloadQueue.id, id));
+			// Use the API endpoint which handles both native client retry and re-add
+			const response = await fetch(`/api/queue/${id}/retry`, {
+				method: 'POST'
+			});
+
+			if (!response.ok) {
+				const errorData = await response.json().catch(() => ({}));
+				return fail(response.status, {
+					error: errorData.message || `Retry failed: ${response.statusText}`
+				});
+			}
+
 			return { success: true };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';

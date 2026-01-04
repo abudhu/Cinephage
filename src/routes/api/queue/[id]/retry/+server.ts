@@ -58,18 +58,37 @@ export const POST: RequestHandler = async ({ params }) => {
 			throw error(500, 'Failed to get download client instance');
 		}
 
-		// Determine category based on media type
-		const clientConfig = await getDownloadClientManager().getClient(client.id);
-		const category = queueItem.movieId
-			? (clientConfig?.movieCategory ?? 'movies')
-			: (clientConfig?.tvCategory ?? 'tv');
+		let newInfoHash: string | undefined;
 
-		// Re-add to download client
-		const newInfoHash = await clientInstance.addDownload({
-			magnetUri: queueItem.magnetUrl || undefined,
-			downloadUrl: queueItem.magnetUrl ? undefined : queueItem.downloadUrl || undefined,
-			category
-		});
+		// Try native client retry first (SABnzbd/NZBGet can retry from history cache)
+		if (clientInstance.retryDownload && queueItem.downloadId) {
+			try {
+				newInfoHash = await clientInstance.retryDownload(queueItem.downloadId);
+				logger.info('Native retry succeeded', { id, newInfoHash });
+			} catch (retryError) {
+				logger.warn('Native retry failed, falling back to re-add', {
+					id,
+					error: retryError instanceof Error ? retryError.message : String(retryError)
+				});
+				// Fall through to re-add approach
+			}
+		}
+
+		// Fall back to re-adding the download if native retry didn't work
+		if (!newInfoHash) {
+			// Determine category based on media type
+			const clientConfig = await getDownloadClientManager().getClient(client.id);
+			const category = queueItem.movieId
+				? (clientConfig?.movieCategory ?? 'movies')
+				: (clientConfig?.tvCategory ?? 'tv');
+
+			// Re-add to download client
+			newInfoHash = await clientInstance.addDownload({
+				magnetUri: queueItem.magnetUrl || undefined,
+				downloadUrl: queueItem.magnetUrl ? undefined : queueItem.downloadUrl || undefined,
+				category
+			});
+		}
 
 		await db
 			.update(downloadQueue)

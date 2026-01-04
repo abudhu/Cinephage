@@ -154,6 +154,7 @@ export interface ChannelLineupItem {
 	cachedLogo: string | null;
 	cachedCategoryId: string | null;
 	cachedCategoryName: string | null;
+	cachedCmd: string | null; // Channel cmd for streaming
 	// User customizations (override cached values when set)
 	customName: string | null;
 	customLogo: string | null;
@@ -206,6 +207,8 @@ export interface AddToLineupRequest {
 		logo?: string;
 		categoryId?: string;
 		categoryName?: string;
+		/** User's custom category to assign to this channel */
+		userCategoryId?: string | null;
 	}>;
 }
 

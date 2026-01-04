@@ -25,6 +25,10 @@ import { mapPriorityToSabnzbd } from './types';
 /** Config cache TTL in milliseconds (1 minute) */
 const CONFIG_CACHE_TTL = 60_000;
 
+/** User-Agent for NZB fetches - looks more legitimate than generic string */
+const NZB_FETCH_USER_AGENT =
+	'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 /**
  * Extended config for SABnzbd that includes API key.
  */
@@ -78,6 +82,76 @@ export class SABnzbdClient implements IDownloadClient {
 	 */
 	clearConfigCache(): void {
 		this.configCache = null;
+	}
+
+	/**
+	 * Reset the proxy's incremental polling state.
+	 * Call this when you want to force a full refresh.
+	 */
+	resetPollingState(): void {
+		this.proxy.resetPollingState();
+	}
+
+	/**
+	 * Detect the type of error based on the response content.
+	 * Helps diagnose why an NZB fetch failed.
+	 */
+	private detectNzbErrorType(contentType: string, preview: string): string {
+		const lowerPreview = preview.toLowerCase();
+		const lowerContentType = contentType.toLowerCase();
+
+		// Cloudflare challenge
+		if (
+			lowerPreview.includes('cf-') ||
+			lowerPreview.includes('cloudflare') ||
+			lowerPreview.includes('checking your browser')
+		) {
+			return 'Cloudflare challenge page - indexer may require browser authentication';
+		}
+
+		// Rate limiting
+		if (
+			lowerPreview.includes('rate limit') ||
+			lowerPreview.includes('too many requests') ||
+			lowerPreview.includes('429')
+		) {
+			return 'Rate limited by indexer - try again later';
+		}
+
+		// Generic HTML error page
+		if (lowerPreview.includes('<!doctype') || lowerPreview.includes('<html')) {
+			// Check for common error messages
+			if (lowerPreview.includes('not found') || lowerPreview.includes('404')) {
+				return 'NZB not found on indexer (404)';
+			}
+			if (lowerPreview.includes('unauthorized') || lowerPreview.includes('401')) {
+				return 'Authentication failed - check API key';
+			}
+			if (lowerPreview.includes('forbidden') || lowerPreview.includes('403')) {
+				return 'Access forbidden - check API key permissions';
+			}
+			return 'HTML error page returned instead of NZB';
+		}
+
+		// JSON error response
+		if (lowerContentType.includes('json') || lowerPreview.startsWith('{')) {
+			try {
+				const parsed = JSON.parse(preview);
+				if (parsed.error) {
+					return `API error: ${parsed.error}`;
+				}
+			} catch {
+				// Not valid JSON, continue
+			}
+			return 'JSON response instead of NZB - check indexer API response';
+		}
+
+		// Wrong content type
+		if (!lowerContentType.includes('nzb') && !lowerContentType.includes('xml')) {
+			return `Unexpected content-type: ${contentType}`;
+		}
+
+		return 'Response content does not appear to be valid NZB XML';
 	}
 
 	/**
@@ -176,14 +250,31 @@ export class SABnzbdClient implements IDownloadClient {
 			const sabConfig = await this.proxy.getConfig();
 			const categories = sabConfig.categories.map((c) => c.name);
 
-			logger.info('[SABnzbd] Connection test successful', { version });
+			// Get full status for disk space info
+			const fullStatus = await this.proxy.getFullStatus();
+
+			// Get warnings
+			const sabWarnings = await this.proxy.getWarnings();
+			const warnings = sabWarnings.map((w) => `[${w.type}] ${w.text}`);
+
+			logger.info('[SABnzbd] Connection test successful', {
+				version,
+				diskSpace1: fullStatus.diskspace1,
+				diskSpace2: fullStatus.diskspace2,
+				warningCount: warnings.length
+			});
 
 			return {
 				success: true,
+				warnings: warnings.length > 0 ? warnings : undefined,
 				details: {
 					version,
 					savePath: sabConfig.misc.complete_dir,
-					categories
+					categories,
+					diskSpace1: fullStatus.diskspace1,
+					diskSpace2: fullStatus.diskspace2,
+					diskSpaceTotal1: fullStatus.diskspacetotal1,
+					diskSpaceTotal2: fullStatus.diskspacetotal2
 				}
 			};
 		} catch (error) {
@@ -222,25 +313,79 @@ export class SABnzbdClient implements IDownloadClient {
 
 			// Check for NZB file content
 			const nzbContent = options.nzbFile || options.torrentFile;
+			const safeTitle =
+				options.title && options.title.trim().length > 0
+					? options.title
+					: `SABnzbd_Grab_${Date.now()}`;
+			const filename = `${safeTitle}.nzb`;
+
 			if (nzbContent) {
-				const safeTitle =
-					options.title && options.title.trim().length > 0
-						? options.title
-						: `SABnzbd_Grab_${Date.now()}`;
-				const filename = `${safeTitle}.nzb`;
+				// Already have NZB content - upload directly
 				response = await this.proxy.downloadNzb(nzbContent, filename, options.category, priority);
 			} else if (options.downloadUrl) {
-				const safeTitle =
-					options.title && options.title.trim().length > 0
-						? options.title
-						: `SABnzbd_Grab_${Date.now()}`;
-				const filename = `${safeTitle}.nzb`;
-				response = await this.proxy.downloadNzbByUrl(
-					options.downloadUrl,
-					options.category,
-					priority,
-					filename
-				);
+				// Fetch NZB content ourselves instead of sending URL to SABnzbd
+				// This avoids issues where SABnzbd gets blocked by Cloudflare/indexers
+				const sanitizedUrl = options.downloadUrl.replace(/apikey=[^&]+/, 'apikey=***');
+				logger.info('[SABnzbd] Fetching NZB from URL', { url: sanitizedUrl });
+
+				let nzbResponse: Response;
+				try {
+					nzbResponse = await fetch(options.downloadUrl, {
+						headers: {
+							'User-Agent': NZB_FETCH_USER_AGENT,
+							Accept: 'application/x-nzb, application/xml, */*'
+						}
+					});
+				} catch (fetchError) {
+					const message = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+					logger.error('[SABnzbd] Network error fetching NZB', {
+						url: sanitizedUrl,
+						error: message
+					});
+					throw new Error(`Network error fetching NZB: ${message}`);
+				}
+
+				if (!nzbResponse.ok) {
+					logger.error('[SABnzbd] HTTP error fetching NZB', {
+						url: sanitizedUrl,
+						status: nzbResponse.status,
+						statusText: nzbResponse.statusText
+					});
+					throw new Error(
+						`Failed to fetch NZB: HTTP ${nzbResponse.status} ${nzbResponse.statusText}`
+					);
+				}
+
+				// Get response content
+				const contentType = nzbResponse.headers.get('content-type') || 'unknown';
+				const nzbData = Buffer.from(await nzbResponse.arrayBuffer());
+
+				// Check if it looks like an NZB (starts with XML declaration or nzb tag)
+				// Use more of the content for better error detection
+				const nzbStart = nzbData.toString('utf8', 0, 500);
+				if (!nzbStart.includes('<?xml') && !nzbStart.includes('<nzb')) {
+					// Use error type detection for helpful message
+					const errorType = this.detectNzbErrorType(contentType, nzbStart);
+					const preview = nzbStart.substring(0, 100).replace(/\s+/g, ' ').trim();
+
+					logger.error('[SABnzbd] Response is not a valid NZB', undefined, {
+						url: sanitizedUrl,
+						contentType,
+						errorType,
+						preview,
+						responseSize: nzbData.length
+					});
+
+					throw new Error(`Invalid NZB response: ${errorType}`);
+				}
+
+				logger.info('[SABnzbd] NZB fetched successfully, uploading to SABnzbd', {
+					size: nzbData.length,
+					contentType
+				});
+
+				// Upload as file
+				response = await this.proxy.downloadNzb(nzbData, filename, options.category, priority);
 			} else {
 				throw new Error('Must provide either NZB file content or download URL');
 			}
@@ -260,28 +405,69 @@ export class SABnzbdClient implements IDownloadClient {
 			return nzoId;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
-			logger.error('[SABnzbd] Failed to add download', { error: message });
+			logger.error('[SABnzbd] Failed to add download', {
+				title: options.title,
+				category: options.category,
+				hasUrl: !!options.downloadUrl,
+				hasFile: !!(options.nzbFile || options.torrentFile),
+				error: message
+			});
 			throw error;
 		}
 	}
 
 	/**
 	 * Get all downloads from both queue and history.
-	 * History items are mapped asynchronously to validate storage paths.
+	 * Uses a Map to deduplicate by nzo_id, prioritizing history items
+	 * since they have valid storage paths (queue items have empty paths).
+	 *
+	 * Note: History items include all post-processing statuses (Extracting, Moving, etc.)
+	 * not just Completed items. This ensures we track items throughout their lifecycle.
 	 */
 	async getDownloads(category?: string): Promise<DownloadInfo[]> {
-		const downloads: DownloadInfo[] = [];
-
 		try {
 			// Fetch config once for storage path validation (uses cache)
 			const sabConfig = await this.getCachedConfig();
 
-			// Get queue items (synchronous mapping - no path available)
+			// Use a Map to deduplicate by nzo_id
+			// History items take precedence because they have valid storage paths
+			const downloadMap = new Map<string, DownloadInfo>();
+
+			// Get history items FIRST (they have valid paths and take priority)
+			// Pass category as 3rd param, no nzoIds filter (4th param), no incremental (5th param)
+			const history = await this.proxy.getHistory(0, 100, category);
+			if (!history) {
+				logger.debug('[SABnzbd] History unchanged (incremental poll)');
+			} else {
+				logger.debug(`[SABnzbd] Fetched ${history.slots.length} history items`);
+				for (const item of history.slots) {
+					logger.debug(`[SABnzbd] History item`, {
+						nzo_id: item.nzo_id,
+						name: item.name,
+						category: item.category,
+						status: item.status,
+						storage: item.storage
+					});
+					const mappedItem = await this.mapHistoryItemAsync(item, sabConfig);
+					downloadMap.set(item.nzo_id, mappedItem);
+				}
+			}
+
+			// Get queue items - only add if not already in map (history takes priority)
 			const queue = await this.proxy.getQueue(0, 1000);
 			logger.debug(`[SABnzbd] Fetched ${queue.slots.length} queue items`, {
 				categoryFilter: category
 			});
 			for (const item of queue.slots) {
+				// Skip if already have this item from history (history has valid paths)
+				if (downloadMap.has(item.nzo_id)) {
+					logger.debug(`[SABnzbd] Skipping queue item - already in history`, {
+						nzo_id: item.nzo_id,
+						queueStatus: item.status
+					});
+					continue;
+				}
+
 				logger.debug(`[SABnzbd] Queue item`, {
 					nzo_id: item.nzo_id,
 					filename: item.filename,
@@ -289,30 +475,14 @@ export class SABnzbdClient implements IDownloadClient {
 					status: item.status
 				});
 				if (!category || item.cat === category) {
-					downloads.push(this.mapQueueItem(item));
+					downloadMap.set(item.nzo_id, this.mapQueueItem(item));
 				}
 			}
 
-			// Get recent history items (async mapping - needs config for validation)
-			const history = await this.proxy.getHistory(0, 100, category);
-			logger.debug(`[SABnzbd] Fetched ${history.slots.length} history items`);
-			for (const item of history.slots) {
-				logger.debug(`[SABnzbd] History item`, {
-					nzo_id: item.nzo_id,
-					name: item.name,
-					category: item.category,
-					status: item.status,
-					storage: item.storage
-				});
-				// Include all history items - post-processing items have status like 'Extracting'
-				// Only items with valid storage AND 'Completed' status will trigger import
-				const mappedItem = await this.mapHistoryItemAsync(item, sabConfig);
-				downloads.push(mappedItem);
-			}
-
-			return downloads;
+			return Array.from(downloadMap.values());
 		} catch (error) {
-			logger.error('[SABnzbd] Failed to get downloads', { error });
+			const message = error instanceof Error ? error.message : String(error);
+			logger.error('[SABnzbd] Failed to get downloads', { error: message });
 			throw error;
 		}
 	}
@@ -391,6 +561,21 @@ export class SABnzbdClient implements IDownloadClient {
 	}
 
 	/**
+	 * Retry a failed download from history.
+	 * Returns the new nzo_id if SABnzbd creates a new queue entry.
+	 */
+	async retryDownload(id: string): Promise<string | undefined> {
+		try {
+			const newId = await this.proxy.retry(id);
+			logger.info('[SABnzbd] Download retry initiated', { id, newId });
+			return newId;
+		} catch (error) {
+			logger.error('[SABnzbd] Failed to retry download', { id, error });
+			throw error;
+		}
+	}
+
+	/**
 	 * Get the default save path from SABnzbd config.
 	 */
 	async getDefaultSavePath(): Promise<string> {
@@ -404,12 +589,26 @@ export class SABnzbdClient implements IDownloadClient {
 	}
 
 	/**
+	 * Get the base download path from SABnzbd config.
+	 * Used for path mapping when SABnzbd runs on a different machine.
+	 */
+	async getBasePath(): Promise<string | undefined> {
+		try {
+			const config = await this.getCachedConfig();
+			return config.misc.complete_dir;
+		} catch (error) {
+			logger.warn('[SABnzbd] Failed to get base path', { error });
+			return undefined;
+		}
+	}
+
+	/**
 	 * Get available categories.
+	 * Uses lightweight get_cats endpoint instead of full config fetch.
 	 */
 	async getCategories(): Promise<string[]> {
 		try {
-			const config = await this.proxy.getConfig();
-			return config.categories.map((c) => c.name);
+			return await this.proxy.getCategories();
 		} catch (error) {
 			logger.error('[SABnzbd] Failed to get categories', { error });
 			throw error;
@@ -504,6 +703,38 @@ export class SABnzbdClient implements IDownloadClient {
 	}
 
 	/**
+	 * Estimate progress for history items based on post-processing status.
+	 * Download is 100%, post-processing stages should show meaningful progress.
+	 */
+	private estimateHistoryProgress(status: SabnzbdDownloadStatus, isCompleted: boolean): number {
+		if (isCompleted) return 100;
+
+		// Post-processing stages happen after download is 100%
+		// Estimate progress through the pipeline
+		switch (status) {
+			case 'Completed':
+				return 100;
+			case 'Verifying':
+			case 'QuickCheck':
+			case 'Checking':
+				return 85; // Download done, verifying
+			case 'Repairing':
+				return 88; // Repairing pars
+			case 'Extracting':
+				return 92; // Extracting archives
+			case 'Moving':
+				return 97; // Almost done
+			case 'Running':
+				return 95; // Running post-scripts
+			case 'Failed':
+			case 'Deleted':
+				return 0;
+			default:
+				return 80; // Generic post-processing
+		}
+	}
+
+	/**
 	 * Map SABnzbd history item to DownloadInfo with storage path validation.
 	 * Only marks as completed if both status is 'Completed' AND storage path is valid.
 	 * This prevents premature imports when the path is still the base directory.
@@ -534,7 +765,7 @@ export class SABnzbdClient implements IDownloadClient {
 			id: item.nzo_id,
 			name: item.name,
 			hash: item.nzo_id,
-			progress: isCompleted ? 100 : 0,
+			progress: this.estimateHistoryProgress(item.status, isCompleted),
 			status: isCompleted ? 'completed' : this.mapStatus(item.status, 0),
 			size: item.bytes,
 			downloadSpeed: 0,

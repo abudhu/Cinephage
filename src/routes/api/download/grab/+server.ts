@@ -269,6 +269,23 @@ export const POST: RequestHandler = async ({ request }) => {
 			error?: string;
 		};
 
+		// Reconstruct redacted download URL if needed (API keys are redacted in search results)
+		let reconstructedDownloadUrl = data.downloadUrl;
+		if (data.downloadUrl && data.indexerId) {
+			const isRedacted =
+				data.downloadUrl.includes('[REDACTED]') || data.downloadUrl.includes('%5BREDACTED%5D');
+			if (isRedacted) {
+				const indexerManager = await getIndexerManager();
+				const indexerInstance = await indexerManager.getIndexerInstance(data.indexerId);
+				if (indexerInstance && 'reconstructDownloadUrl' in indexerInstance) {
+					reconstructedDownloadUrl = (
+						indexerInstance as { reconstructDownloadUrl: (url: string) => string }
+					).reconstructDownloadUrl(data.downloadUrl);
+					logger.debug('Reconstructed redacted download URL for grab');
+				}
+			}
+		}
+
 		if (protocol === 'usenet') {
 			// Usenet doesn't need resolution - the NZB URL is passed directly to the client
 			resolved = { success: true };
@@ -277,7 +294,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			// Resolve torrent - fetches through the indexer with proper auth/cookies
 			const resolutionService = getDownloadResolutionService();
 			resolved = await resolutionService.resolve({
-				downloadUrl: data.downloadUrl,
+				downloadUrl: reconstructedDownloadUrl,
 				magnetUrl: data.magnetUrl,
 				infoHash: data.infoHash,
 				indexerId: data.indexerId,
@@ -315,7 +332,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				magnetUri: resolved.magnetUrl,
 				torrentFile: resolved.torrentFile,
 				infoHash: resolved.infoHash,
-				downloadUrl: data.downloadUrl,
+				downloadUrl: reconstructedDownloadUrl,
+				title: data.title,
 				category,
 				paused,
 				priority: clientConfig.recentPriority,

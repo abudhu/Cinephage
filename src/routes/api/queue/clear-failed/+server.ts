@@ -1,0 +1,51 @@
+/**
+ * Clear Failed Queue Items API
+ *
+ * POST /api/queue/clear-failed - Clear failed downloads from the queue
+ *
+ * Query params:
+ *   olderThanDays=N - Only clear items that failed more than N days ago
+ *   dryRun=true - Preview what would be cleared without actually clearing
+ */
+
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { downloadMonitor } from '$lib/server/downloadClients/monitoring';
+import { logger } from '$lib/logging';
+
+export const POST: RequestHandler = async ({ url }) => {
+	const dryRun = url.searchParams.get('dryRun') === 'true';
+	const olderThanDaysParam = url.searchParams.get('olderThanDays');
+	const olderThanDays = olderThanDaysParam ? parseInt(olderThanDaysParam, 10) : undefined;
+
+	logger.info('Clear failed items requested', { dryRun, olderThanDays });
+
+	try {
+		const result = await downloadMonitor.clearFailedItems({
+			olderThanDays,
+			dryRun
+		});
+
+		return json({
+			success: true,
+			dryRun,
+			olderThanDays,
+			summary: {
+				cleared: result.cleared.length,
+				total: result.total
+			},
+			cleared: result.cleared
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : 'Unknown error';
+		logger.error('Clear failed items failed', { error: message });
+
+		return json(
+			{
+				success: false,
+				error: message
+			},
+			{ status: 500 }
+		);
+	}
+};

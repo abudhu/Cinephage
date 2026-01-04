@@ -22,6 +22,21 @@
 	const RECONNECT_BASE_DELAY = 1000; // 1 second
 	let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	// Debounce invalidation to prevent excessive page reloads
+	// This is especially important when SABnzbd is slow to respond
+	let invalidateTimeout: ReturnType<typeof setTimeout> | null = null;
+	const INVALIDATE_DEBOUNCE_MS = 500;
+
+	function debouncedInvalidate() {
+		if (invalidateTimeout) {
+			clearTimeout(invalidateTimeout);
+		}
+		invalidateTimeout = setTimeout(() => {
+			invalidateAll();
+			invalidateTimeout = null;
+		}, INVALIDATE_DEBOUNCE_MS);
+	}
+
 	function connectSSE() {
 		if (eventSource) {
 			eventSource.close();
@@ -47,10 +62,16 @@
 			}
 		};
 
+		// Use debounced invalidation for frequent events
 		eventSource.addEventListener('queue:updated', () => {
-			invalidateAll();
+			debouncedInvalidate();
 		});
 
+		eventSource.addEventListener('queue:stats', () => {
+			debouncedInvalidate();
+		});
+
+		// Immediate invalidation for significant state changes
 		eventSource.addEventListener('queue:added', () => {
 			invalidateAll();
 		});
@@ -70,10 +91,6 @@
 		eventSource.addEventListener('queue:failed', () => {
 			invalidateAll();
 		});
-
-		eventSource.addEventListener('queue:stats', () => {
-			invalidateAll();
-		});
 	}
 
 	onMount(() => {
@@ -83,6 +100,9 @@
 	onDestroy(() => {
 		if (reconnectTimeout) {
 			clearTimeout(reconnectTimeout);
+		}
+		if (invalidateTimeout) {
+			clearTimeout(invalidateTimeout);
 		}
 		if (eventSource) {
 			eventSource.close();

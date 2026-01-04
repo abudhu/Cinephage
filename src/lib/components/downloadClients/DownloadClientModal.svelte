@@ -87,8 +87,12 @@
 	let olderPriority = $state<'normal' | 'high' | 'force'>('normal');
 	let initialState = $state<'start' | 'pause' | 'force'>('start');
 
-	// Form state - Path
+	// Form state - Path (completed downloads)
 	let downloadPathLocal = $state('');
+	let downloadPathRemote = $state('');
+	// Form state - Path (temp downloads - SABnzbd only)
+	let tempPathLocal = $state('');
+	let tempPathRemote = $state('');
 
 	// Form state - Priority order
 	let priority = $state(1);
@@ -100,6 +104,7 @@
 	let testing = $state(false);
 	let testResult = $state<ConnectionTestResult | null>(null);
 	let showFolderBrowser = $state(false);
+	let browsingField = $state<'downloadPathLocal' | 'tempPathLocal'>('downloadPathLocal');
 
 	// Derived
 	const modalTitle = $derived(mode === 'add' ? 'Add Download Client' : 'Edit Download Client');
@@ -136,6 +141,9 @@
 			olderPriority = dcClient?.olderPriority ?? 'normal';
 			initialState = dcClient?.initialState ?? 'start';
 			downloadPathLocal = dcClient?.downloadPathLocal ?? '';
+			downloadPathRemote = dcClient?.downloadPathRemote ?? '';
+			tempPathLocal = dcClient?.tempPathLocal ?? '';
+			tempPathRemote = dcClient?.tempPathRemote ?? '';
 
 			// NNTP-specific fields
 			const nntpClient = client as NntpServer | undefined;
@@ -191,7 +199,7 @@
 			return data;
 		}
 
-		return {
+		const data: DownloadClientFormData = {
 			name,
 			implementation: implementation as DownloadClientImplementation,
 			enabled,
@@ -208,8 +216,16 @@
 			seedRatioLimit: null,
 			seedTimeLimit: null,
 			downloadPathLocal: downloadPathLocal || null,
+			downloadPathRemote: downloadPathRemote || null,
+			tempPathLocal: tempPathLocal || null,
+			tempPathRemote: tempPathRemote || null,
 			priority
 		};
+		// In edit mode, only include password if user actually typed something new
+		if (mode === 'edit' && !password) {
+			delete (data as unknown as Record<string, unknown>).password;
+		}
+		return data;
 	}
 
 	async function handleTest() {
@@ -237,8 +253,17 @@
 	}
 
 	function handleFolderSelect(path: string) {
-		downloadPathLocal = path;
+		if (browsingField === 'tempPathLocal') {
+			tempPathLocal = path;
+		} else {
+			downloadPathLocal = path;
+		}
 		showFolderBrowser = false;
+	}
+
+	function openFolderBrowser(field: 'downloadPathLocal' | 'tempPathLocal') {
+		browsingField = field;
+		showFolderBrowser = true;
 	}
 </script>
 
@@ -315,7 +340,7 @@
 				{#if showFolderBrowser}
 					<div class="mb-6">
 						<FolderBrowser
-							value={downloadPathLocal || '/'}
+							value={(browsingField === 'tempPathLocal' ? tempPathLocal : downloadPathLocal) || '/'}
 							onSelect={handleFolderSelect}
 							onCancel={() => (showFolderBrowser = false)}
 						/>
@@ -462,7 +487,11 @@
 									bind:olderPriority
 									bind:initialState
 									bind:downloadPathLocal
-									onBrowse={() => (showFolderBrowser = true)}
+									bind:downloadPathRemote
+									bind:tempPathLocal
+									bind:tempPathRemote
+									isSabnzbd={usesApiKey}
+									onBrowse={openFolderBrowser}
 								/>
 							{/if}
 						</div>

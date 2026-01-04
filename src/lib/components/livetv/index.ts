@@ -7,3 +7,5 @@ export { default as ChannelBulkActionBar } from './ChannelBulkActionBar.svelte';
 export { default as ChannelCategoryList } from './ChannelCategoryList.svelte';
 export { default as ChannelCategoryModal } from './ChannelCategoryModal.svelte';
 export { default as ChannelEditModal } from './ChannelEditModal.svelte';
+export { default as AddToLineupModal } from './AddToLineupModal.svelte';
+export { default as ExportModal } from './ExportModal.svelte';

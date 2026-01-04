@@ -30,8 +30,9 @@ import { logger } from '$lib/logging';
  * Version 13: Added channel_categories table and extended channel_lineup_items with customization fields
  * Version 14: Added EPG support - epg_sources, epg_programs tables, extended accounts and lineup items
  * Version 15: Added live_tv_settings table for scheduler configuration
+ * Version 16: Added temp path columns to download_clients for SABnzbd dual folder support
  */
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 /**
  * All table definitions with CREATE TABLE IF NOT EXISTS
@@ -136,6 +137,8 @@ const TABLE_DEFINITIONS: string[] = [
 		"seed_time_limit" integer,
 		"download_path_local" text,
 		"download_path_remote" text,
+		"temp_path_local" text,
+		"temp_path_remote" text,
 		"priority" integer DEFAULT 1,
 		"created_at" text,
 		"updated_at" text
@@ -1717,6 +1720,17 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 				.run();
 		}
 		logger.info('[SchemaSync] Added live_tv_settings table for Live TV scheduler');
+	},
+
+	// Version 16: Add temp path columns to download_clients for SABnzbd dual folder support
+	16: (sqlite) => {
+		if (!columnExists(sqlite, 'download_clients', 'temp_path_local')) {
+			sqlite.prepare(`ALTER TABLE download_clients ADD COLUMN temp_path_local TEXT`).run();
+		}
+		if (!columnExists(sqlite, 'download_clients', 'temp_path_remote')) {
+			sqlite.prepare(`ALTER TABLE download_clients ADD COLUMN temp_path_remote TEXT`).run();
+		}
+		logger.info('[SchemaSync] Added temp path columns to download_clients for SABnzbd');
 	}
 };
 
