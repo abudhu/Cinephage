@@ -90,7 +90,7 @@ Initial public preview release.
 
 - Native Cardigann-compatible YAML indexer engine
 - Built-in indexers: YTS, EZTV
-- Torznab/Newznab protocol support for external integrations
+- Newznab protocol support for usenet indexers
 - Per-host rate limiting
 - Automatic health tracking with exponential backoff
 - Cloudflare detection

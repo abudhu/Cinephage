@@ -271,7 +271,7 @@
 					<RefreshCw class="h-4 w-4" />
 				{/if}
 			</button>
-			<button class="btn btn-sm btn-ghost" onclick={openScanner}>
+			<button class="btn btn-ghost btn-sm" onclick={openScanner}>
 				<Search class="h-4 w-4" />
 				Scan for Accounts
 			</button>

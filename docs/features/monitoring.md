@@ -1,22 +1,22 @@
-[< Back to Index](../INDEX.md) | [Subtitles](subtitles.md) | [Library Management](library-management.md)
+# Monitoring
 
-# Monitoring Tasks
+Cinephage includes 7 automated monitoring tasks that run in the background to keep your library up-to-date.
 
-Cinephage includes automated monitoring tasks that run in the background to keep your library up-to-date.
+> **Experimental Feature**: The monitoring system is functional but still being refined. Report any issues on [GitHub](https://github.com/MoldyTaint/Cinephage/issues).
 
-> **Experimental Feature**: The monitoring system is functional but still being refined. You may encounter scheduling issues or edge cases. Please report any problems on [GitHub Issues](https://github.com/MoldyTaint/Cinephage/issues).
+---
 
 ## Task Overview
 
-| Task                    | Default Interval | Description                                         |
-| ----------------------- | ---------------- | --------------------------------------------------- |
-| Missing Content         | 24 hours         | Searches for movies/series without files            |
-| Upgrade Monitoring      | Weekly           | Detects when better quality is available            |
-| New Episode Detection   | 1 hour           | Monitors for newly released episodes                |
-| Cutoff Unmet            | 24 hours         | Finds content below quality cutoff                  |
-| Pending Release Cleanup | 15 minutes       | Removes stuck pending items                         |
-| Missing Subtitles       | 6 hours          | Searches for missing subtitles per language profile |
-| Subtitle Upgrade        | Daily            | Finds better-scoring subtitles for upgrades         |
+| Task                    | Default Interval | Description                              |
+| ----------------------- | ---------------- | ---------------------------------------- |
+| Missing Content         | 24 hours         | Searches for movies/series without files |
+| Upgrade Monitoring      | Weekly           | Detects when better quality is available |
+| New Episode Detection   | 1 hour           | Monitors for newly released episodes     |
+| Cutoff Unmet            | 24 hours         | Finds content below quality cutoff       |
+| Pending Release Cleanup | 15 minutes       | Removes stuck pending items              |
+| Missing Subtitles       | 6 hours          | Searches for missing subtitles           |
+| Subtitle Upgrade        | Daily            | Finds better-scoring subtitles           |
 
 ---
 
@@ -82,9 +82,8 @@ Finds content that's below your quality profile's defined cutoff.
 1. Identifies files below cutoff score
 2. Searches for releases meeting cutoff
 3. Only targets items that haven't reached their target quality yet
-4. Records per-item activity to task history
 
-> **Note:** This task is distinct from Upgrade Monitoring. CutoffUnmet only searches items **below** your quality cutoff, while Upgrade Monitoring searches **all** items for potential improvements regardless of cutoff status.
+> **Note:** This is distinct from Upgrade Monitoring. Cutoff Unmet only searches items **below** your quality cutoff, while Upgrade Monitoring searches **all** items for potential improvements.
 
 **Configuration:**
 
@@ -110,40 +109,38 @@ Removes pending releases that never materialized.
 
 ### Missing Subtitles Search
 
-Automatically searches for subtitles on media that has files but lacks subtitles required by the language profile.
+Automatically searches for subtitles on media that has files but lacks required subtitles.
 
 **How it works:**
 
 1. Finds movies/episodes with files that want subtitles
 2. Checks each item against its assigned language profile
-3. Considers both external subtitle files AND embedded subtitles in the video container
+3. Considers both external files AND embedded subtitles
 4. Searches configured providers for missing languages
 5. Downloads subtitles meeting the minimum score threshold
 
 **Configuration:**
 
 - Interval: Configurable (default 6 hours)
-- Respects language profile minimum score setting
+- Respects language profile minimum score
 - Processes items in batches to avoid overwhelming providers
-- Records downloads in subtitle history
 
 ### Subtitle Upgrade Search
 
-Searches for better-scoring subtitles when the language profile allows upgrades.
+Searches for better-scoring subtitles when upgrades are allowed.
 
 **How it works:**
 
-1. Finds existing subtitles with match scores below potential improvements
-2. Checks if the language profile has `upgradesAllowed` enabled
+1. Finds existing subtitles with scores below potential improvements
+2. Checks if the language profile has upgrades enabled
 3. Searches for subtitles with scores at least 10 points better
 4. Replaces existing subtitles with higher-quality matches
 
 **Configuration:**
 
 - Interval: Configurable (default daily)
-- Requires `upgradesAllowed: true` in language profile
+- Requires upgrades enabled in language profile
 - Minimum improvement threshold: 10 points
-- Records upgrades in subtitle history with `action: upgraded`
 
 ---
 
@@ -151,19 +148,19 @@ Searches for better-scoring subtitles when the language profile allows upgrades.
 
 ### Accessing Task Settings
 
-Navigate to **Settings > Tasks** to configure:
+Navigate to **Settings > Tasks** to:
 
 1. View task status and last run times
 2. Set intervals for each task
 3. Run tasks manually
-4. View execution history and per-item activity
+4. View execution history
 
 ### Global Settings
 
-- **Remember last run**: Tasks remember when they last ran and resume accordingly after restart
+- **Remember last run**: Tasks resume from where they left off after restart
 - **Background execution**: All tasks run in background threads
 - **Error handling**: Failed tasks retry with exponential backoff
-- **History retention**: Task history is automatically cleaned up after 30 days
+- **History retention**: Task history is cleaned up after 30 days
 
 ### Per-Item Settings
 
@@ -180,7 +177,7 @@ Override monitoring behavior for specific movies or series:
 Run any monitoring task manually:
 
 1. Navigate to **Settings > Tasks**
-2. Click "Run Now" on the desired task
+2. Click **Run Now** on the desired task
 3. View progress in the task history
 
 Or trigger from media detail pages:
@@ -199,8 +196,8 @@ Track monitoring task activity:
 - **History**: Past searches and grabs
 - **Queue**: Current download queue with status
 
-Access via the Activity menu in the navigation.
+Access via the **Activity** menu in the navigation.
 
 ---
 
-**See also:** [Quality Profiles](quality-profiles.md) | [Subtitles](subtitles.md) | [Monitoring Internals](../development/monitoring-internals.md)
+**See also:** [Quality Profiles](quality-profiles.md) | [Smart Lists](smart-lists.md) | [Subtitles](subtitles.md)

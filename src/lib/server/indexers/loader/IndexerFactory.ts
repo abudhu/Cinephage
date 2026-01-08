@@ -13,8 +13,8 @@ import { getNewznabCapabilitiesProvider } from '../newznab/NewznabCapabilitiesPr
 
 const log = createChildLogger({ module: 'IndexerFactory' });
 
-/** Definition IDs that use the Newznab/Torznab protocol */
-const NEWZNAB_DEFINITIONS = ['newznab', 'torznab'];
+/** Definition IDs that use the Newznab protocol */
+const NEWZNAB_DEFINITIONS = ['newznab'];
 
 /**
  * Factory for creating indexer instances.
@@ -62,7 +62,7 @@ export class IndexerFactory {
 
 	/**
 	 * Create a YAML indexer.
-	 * For Newznab/Torznab indexers, fetches live capabilities to filter unsupported params.
+	 * For Newznab indexers, fetches live capabilities to filter unsupported params.
 	 */
 	private async createYamlIndexer(config: IndexerConfig): Promise<IIndexer> {
 		if (!this.yamlLoader) {
@@ -74,7 +74,7 @@ export class IndexerFactory {
 			throw new Error(`YAML definition not found: ${config.definitionId}`);
 		}
 
-		// For Newznab/Torznab, fetch live capabilities from the indexer's /api?t=caps endpoint
+		// For Newznab, fetch live capabilities from the indexer's /api?t=caps endpoint
 		// This allows us to filter out unsupported search params (e.g., tmdbid if not supported)
 		let liveCapabilities;
 		if (NEWZNAB_DEFINITIONS.includes(config.definitionId)) {

@@ -16,13 +16,6 @@ import { PROVIDER_IMPLEMENTATIONS } from '$lib/server/subtitles/types';
 export const indexerProtocolSchema = z.enum(['torrent', 'usenet', 'streaming']);
 
 /**
- * Schema for Torznab-specific configuration.
- */
-export const torznabConfigSchema = z.object({
-	categories: z.array(z.number().int().positive()).optional()
-});
-
-/**
  * Schema for creating a new indexer.
  * YAML-only architecture: all indexers are defined by YAML definitions.
  */

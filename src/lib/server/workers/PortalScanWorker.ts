@@ -337,7 +337,10 @@ export class PortalScanWorker extends TaskWorker<PortalScanWorkerMetadata> {
 
 				// Log progress periodically
 				if (testedMacs % 50 === 0) {
-					this.log('info', `Scan progress: ${testedMacs}/${this.totalMacs} tested, ${foundMacs} found`);
+					this.log(
+						'info',
+						`Scan progress: ${testedMacs}/${this.totalMacs} tested, ${foundMacs} found`
+					);
 				}
 
 				// Rate limiting
@@ -360,7 +363,10 @@ export class PortalScanWorker extends TaskWorker<PortalScanWorkerMetadata> {
 				this.completeHistoryRecord('cancelled');
 				throw error;
 			} else {
-				this.completeHistoryRecord('failed', error instanceof Error ? error.message : String(error));
+				this.completeHistoryRecord(
+					'failed',
+					error instanceof Error ? error.message : String(error)
+				);
 				throw error;
 			}
 		}

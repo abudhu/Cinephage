@@ -76,7 +76,9 @@
 
 	// Derived
 	const selectedPortal = $derived(portals.find((p) => p.id === selectedPortalId));
-	const canProceedToConfig = $derived(selectedPortalId !== null || (newPortalUrl.trim() && newPortalName.trim()));
+	const canProceedToConfig = $derived(
+		selectedPortalId !== null || (newPortalUrl.trim() && newPortalName.trim())
+	);
 
 	const canStartScan = $derived(() => {
 		if (!selectedPortalId && !newPortalUrl.trim()) return false;
@@ -369,7 +371,7 @@
 												placeholder="http://portal.example.com/c"
 											/>
 											<button
-												class="btn btn-sm btn-ghost"
+												class="btn btn-ghost btn-sm"
 												onclick={detectPortal}
 												disabled={detectingPortal || !newPortalUrl.trim()}
 											>
@@ -400,7 +402,7 @@
 					{/if}
 
 					{#if portalError}
-						<div class="alert alert-error text-sm">
+						<div class="alert text-sm alert-error">
 							<span>{portalError}</span>
 						</div>
 					{/if}
@@ -470,7 +472,7 @@
 								</label>
 								<select
 									id="macPrefix"
-									class="select select-bordered select-sm"
+									class="select-bordered select select-sm"
 									bind:value={macPrefix}
 								>
 									{#each macPrefixes as { prefix, name }}
@@ -497,9 +499,7 @@
 									max="10000"
 								/>
 								<div class="label py-1">
-									<span class="label-text-alt text-xs">
-										Maximum 10,000 per scan
-									</span>
+									<span class="label-text-alt text-xs"> Maximum 10,000 per scan </span>
 								</div>
 							</div>
 						</div>
@@ -562,7 +562,7 @@
 							</label>
 							<textarea
 								id="importMacs"
-								class="textarea textarea-bordered h-32 font-mono text-sm"
+								class="textarea-bordered textarea h-32 font-mono text-sm"
 								bind:value={importedMacs}
 								placeholder="00:1A:79:AB:CD:EF&#10;00:1A:79:12:34:56&#10;..."
 							></textarea>
@@ -572,9 +572,7 @@
 								</span>
 							</div>
 							{#if importedMacs.trim()}
-								{@const count = importedMacs
-									.split(/[\n,;]+/)
-									.filter((m) => m.trim()).length}
+								{@const count = importedMacs.split(/[\n,;]+/).filter((m) => m.trim()).length}
 								<div class="text-sm text-base-content/60">
 									{count} MAC address{count !== 1 ? 'es' : ''} detected
 								</div>
@@ -605,7 +603,7 @@
 					</div>
 
 					{#if scanError}
-						<div class="alert alert-error text-sm">
+						<div class="alert text-sm alert-error">
 							<span>{scanError}</span>
 						</div>
 					{/if}

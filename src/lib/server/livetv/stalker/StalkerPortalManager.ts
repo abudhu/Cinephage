@@ -119,11 +119,7 @@ export class StalkerPortalManager {
 	 * Get enabled portals only
 	 */
 	async getEnabledPortals(): Promise<StalkerPortal[]> {
-		const records = db
-			.select()
-			.from(stalkerPortals)
-			.where(eq(stalkerPortals.enabled, true))
-			.all();
+		const records = db.select().from(stalkerPortals).where(eq(stalkerPortals.enabled, true)).all();
 		return records.map(recordToPortal);
 	}
 
@@ -145,11 +141,7 @@ export class StalkerPortalManager {
 	 */
 	async getPortalByUrl(url: string): Promise<StalkerPortal | null> {
 		const normalized = normalizePortalUrl(url);
-		const record = db
-			.select()
-			.from(stalkerPortals)
-			.where(eq(stalkerPortals.url, normalized))
-			.get();
+		const record = db.select().from(stalkerPortals).where(eq(stalkerPortals.url, normalized)).get();
 
 		if (!record) {
 			return null;

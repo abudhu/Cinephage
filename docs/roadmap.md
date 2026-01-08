@@ -157,29 +157,9 @@ Support for additional torrent clients:
 
 ---
 
-### Docker Official Image
-
-Under Consideration | Medium | **Area**: Infrastructure
-
-Create and publish an official Docker image.
-
-**Context**: Simplifies deployment for users who prefer containerized applications. Would include proper health checks, volume mounts, and environment variable configuration.
-
----
-
 ## Not Yet Started
 
 Features on the horizon but not actively in development.
-
-### Live TV / IPTV Support
-
-Not Yet Started | Medium | **Area**: Streaming
-
-Support for live TV streams and IPTV sources.
-
-**Context**: Would enable users to integrate live television alongside their on-demand library. Requires significant infrastructure work for stream handling.
-
----
 
 ### Improved Cloudflare Handling
 
@@ -187,7 +167,7 @@ Not Yet Started | Medium | **Area**: Infrastructure
 
 Better handling of Cloudflare-protected indexers.
 
-**Context**: Many popular indexers use Cloudflare protection. Better integration with FlareSolverr or similar solutions would improve reliability. Currently, some protected sites may fail or require workarounds via Prowlarr.
+**Context**: Many popular indexers use Cloudflare protection. Better integration with FlareSolverr or similar solutions would improve reliability. Currently, some protected sites may fail.
 
 ---
 
@@ -235,7 +215,7 @@ Deeper integration with streaming services for availability tracking.
 
 Not Yet Started | Low | **Area**: Subtitles
 
-Expand subtitle provider support beyond the current 6 providers.
+Expand subtitle provider support beyond the current 8 providers.
 
 **Context**: More providers means better coverage for obscure content and languages.
 

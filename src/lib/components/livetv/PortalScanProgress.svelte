@@ -265,11 +265,7 @@
 		<!-- Actions -->
 		<div class="flex justify-end gap-2">
 			{#if isActive}
-				<button
-					class="btn btn-outline btn-error"
-					onclick={handleCancel}
-					disabled={cancelling}
-				>
+				<button class="btn btn-outline btn-error" onclick={handleCancel} disabled={cancelling}>
 					{#if cancelling}
 						<Loader2 class="h-4 w-4 animate-spin" />
 					{:else}
@@ -278,9 +274,7 @@
 					Cancel Scan
 				</button>
 			{:else}
-				<button class="btn btn-ghost" onclick={onClose}>
-					Close
-				</button>
+				<button class="btn btn-ghost" onclick={onClose}> Close </button>
 				{#if foundCount > 0}
 					<button class="btn btn-primary" onclick={handleViewResults}>
 						<Search class="h-4 w-4" />

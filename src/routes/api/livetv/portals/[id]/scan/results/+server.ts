@@ -18,10 +18,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		const status = url.searchParams.get('status') as ScanResult['status'] | null;
 
 		const scannerService = getPortalScannerService();
-		const results = await scannerService.getScanResults(
-			params.id,
-			status || undefined
-		);
+		const results = await scannerService.getScanResults(params.id, status || undefined);
 
 		return json(results);
 	} catch (error) {
@@ -42,10 +39,7 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 		const status = url.searchParams.get('status') as ScanResult['status'] | null;
 
 		const scannerService = getPortalScannerService();
-		const deleted = await scannerService.clearResults(
-			params.id,
-			status || undefined
-		);
+		const deleted = await scannerService.clearResults(params.id, status || undefined);
 
 		return json({ deleted });
 	} catch (error) {

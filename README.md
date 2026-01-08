@@ -22,7 +22,7 @@
 
 ---
 
-Search for movies and TV shows, grab them from your indexers, organize your library, and fetch subtitles. One app handles it all, backed by a single database.
+Cinephage takes a unified approach to media management. Movies, TV shows, indexers, subtitles, streaming, and live TV — all from a single interface backed by one database. Search, grab, organize, stream, and watch. One app, one place.
 
 > [!CAUTION]
 > **This project is under active development.** Features may be incomplete, APIs may change, and bugs are expected. This is a passion project by a solo developer — your patience and feedback are appreciated. Please report issues on GitHub, but understand that breaking changes may occur between updates.
@@ -33,20 +33,35 @@ Search for movies and TV shows, grab them from your indexers, organize your libr
 
 ---
 
+## At a Glance
+
+|                            |                                                       |
+| -------------------------- | ----------------------------------------------------- |
+| **7 built-in indexers**    | + Newznab support for usenet indexers                 |
+| **8 subtitle providers**   | 80+ languages with auto-download                      |
+| **10 streaming providers** | Built-in streaming indexer + circuit breaker failover |
+| **3 download clients**     | qBittorrent, SABnzbd, NZBGet                          |
+| **Live TV / IPTV**         | Stalker portal integration with account discovery     |
+| **7 monitoring tasks**     | Automated searches, upgrades, new episodes            |
+| **1 database**             | Everything unified, zero fragmentation                |
+
+---
+
 ## Status
 
-| Feature            | Status       | Notes                                               |
-| ------------------ | ------------ | --------------------------------------------------- |
-| Content Discovery  | Stable       | TMDB integration, trending, search                  |
-| Library Management | Stable       | File watching, scanning, TMDB matching              |
-| Quality Scoring    | Stable       | 4 built-in profiles + custom profile creation       |
-| Download Clients   | Stable       | qBittorrent, SABnzbd, NZBGet                        |
-| Indexers           | Stable       | 9 built-in definitions + Torznab/Newznab support    |
-| Subtitles          | Stable       | 8 providers, 80+ languages                          |
-| Streaming          | Stable       | 10 providers with circuit breaker failover          |
-| Monitoring         | Experimental | Automated searches, upgrades, new episode detection |
-| Smart Lists        | Stable       | Dynamic TMDB queries with auto-add to library       |
-| Live TV/IPTV       | In Progress  | Stalker portal, EPG, channel lineup management      |
+| Feature            | Status       | Notes                                                |
+| ------------------ | ------------ | ---------------------------------------------------- |
+| Content Discovery  | Stable       | TMDB integration, trending, search                   |
+| Library Management | Stable       | File watching, scanning, TMDB matching               |
+| Quality Scoring    | Stable       | 4 built-in profiles + custom profile creation        |
+| Download Clients   | Stable       | qBittorrent, SABnzbd, NZBGet                         |
+| Indexers           | Stable       | 7 built-in + Newznab for usenet                      |
+| Subtitles          | Stable       | 8 providers, 80+ languages                           |
+| Streaming          | Stable       | 10 providers with circuit breaker failover           |
+| Smart Lists        | Stable       | Dynamic TMDB queries with auto-add to library        |
+| Monitoring         | Experimental | Automated searches, upgrades, new episode detection  |
+| Notifications      | Stable       | Jellyfin/Emby library update integration             |
+| Live TV/IPTV       | In Progress  | Stalker portal with scanner, EPG, channel management |
 
 ---
 
@@ -123,7 +138,7 @@ Open http://localhost:3000 and configure:
 3. Set up root folders for movies and TV
 4. Enable indexers
 
-See [Configuration Guide](docs/getting-started/configuration.md) for detailed setup.
+See [Setup Wizard](docs/getting-started/setup-wizard.md) for detailed configuration.
 
 ---
 
@@ -139,14 +154,16 @@ See [Configuration Guide](docs/getting-started/configuration.md) for detailed se
 ## Features
 
 - **Content Discovery** — Browse TMDB for movies and TV shows, view trending, trailers, and watch providers
-- **Indexer Search** — 9 indexers built-in, plus Torznab/Newznab support for external indexers
-- **Quality Scoring** — 4 built-in profiles + custom profile creation, scoring 100+ release attributes
 - **Library Management** — Real-time file watching, scheduled scans, auto-match to TMDB metadata
+- **Indexer Search** — 7 built-in indexers plus Newznab for usenet, Cloudflare bypass, rate limiting
+- **Quality Scoring** — 4 built-in profiles with 50+ scoring factors, custom profile creation
 - **Download Automation** — qBittorrent, SABnzbd, and NZBGet integration with categories and auto-import
-- **Streaming** — Direct browser streaming with 10 providers and circuit breaker failover
-- **Subtitles** — 8 providers, 80+ languages, auto-search on import
-- **Monitoring** — Automatic searches for missing content, quality upgrades, and new episodes
-- **Live TV** — IPTV/Stalker portal integration with EPG and channel management (in progress)
+- **Streaming** — Built-in streaming indexer, 10 providers with circuit breaker failover, .strm file generation
+- **Subtitles** — 8 providers, 80+ languages, language profiles, auto-search on import
+- **Monitoring** — 7 automated tasks for missing content, quality upgrades, and new episodes
+- **Smart Lists** — Dynamic TMDB queries (trending, genres, ratings) with auto-add to library
+- **Notifications** — Jellyfin/Emby library update integration
+- **Live TV** — Stalker portal integration with portal scanner, EPG, and channel management (in progress)
 
 See [Documentation](docs/INDEX.md) for full details.
 
@@ -162,9 +179,8 @@ See [Documentation](docs/INDEX.md) for full details.
 ## Documentation
 
 - [Installation](docs/getting-started/installation.md)
-- [Configuration](docs/getting-started/configuration.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [API Reference](docs/reference/api.md)
+- [Setup Wizard](docs/getting-started/setup-wizard.md)
+- [Troubleshooting](docs/support/troubleshooting.md)
 - [Roadmap](docs/roadmap.md)
 
 ---

@@ -50,7 +50,7 @@ export interface YamlIndexerConfig {
 	definition: YamlDefinition;
 	/** Optional rate limit config */
 	rateLimit?: RateLimitConfig;
-	/** Live capabilities fetched from Newznab/Torznab indexer's /api?t=caps endpoint */
+	/** Live capabilities fetched from Newznab indexer's /api?t=caps endpoint */
 	liveCapabilities?: NewznabCapabilities;
 }
 
@@ -115,7 +115,7 @@ export class YamlIndexer implements IIndexer {
 		// Create runtime components
 		this.requestBuilder = createRequestBuilder(definition, this.templateEngine, this.filterEngine);
 
-		// Configure RequestBuilder with live capabilities (for Newznab/Torznab)
+		// Configure RequestBuilder with live capabilities (for Newznab)
 		// This filters out unsupported params like tmdbid when the indexer doesn't support them
 		if (liveCapabilities) {
 			const caps = liveCapabilities.searching;

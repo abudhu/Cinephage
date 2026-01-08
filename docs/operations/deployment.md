@@ -1,0 +1,289 @@
+# Deployment
+
+Production deployment guide for Cinephage.
+
+---
+
+## Docker Deployment (Recommended)
+
+Docker is the simplest way to deploy Cinephage in production.
+
+### Quick Start
+
+```bash
+mkdir -p /opt/cinephage && cd /opt/cinephage
+curl -O https://raw.githubusercontent.com/MoldyTaint/cinephage/main/docker-compose.yaml
+curl -O https://raw.githubusercontent.com/MoldyTaint/cinephage/main/.env.docker.example
+cp .env.docker.example .env
+```
+
+Edit `.env`:
+
+```bash
+CINEPHAGE_PORT=3000
+CINEPHAGE_MEDIA_PATH=/path/to/your/media
+CINEPHAGE_UID=1000
+CINEPHAGE_GID=1000
+CINEPHAGE_ORIGIN=https://cinephage.yourdomain.com
+```
+
+Start:
+
+```bash
+docker compose up -d
+```
+
+### File Permissions
+
+Match container user to your media library ownership:
+
+```bash
+# Find your media library owner
+ls -la /path/to/your/media
+# Note the UID:GID (e.g., 1000:1000)
+
+# Set in .env
+CINEPHAGE_UID=1000
+CINEPHAGE_GID=1000
+
+# Ensure data directories are accessible
+mkdir -p ./data ./logs
+chown -R 1000:1000 ./data ./logs
+```
+
+### Resource Limits
+
+Add to docker-compose.yaml:
+
+```yaml
+deploy:
+  resources:
+    limits:
+      cpus: '2'
+      memory: 2G
+```
+
+---
+
+## Manual Deployment
+
+For installations without Docker.
+
+### Prerequisites
+
+- Node.js 20+
+- npm 10+
+- Linux server (Ubuntu 22.04+, Debian 12+)
+
+### Installation
+
+```bash
+# Clone repository
+git clone https://github.com/MoldyTaint/cinephage.git /opt/cinephage
+cd /opt/cinephage
+
+# Install dependencies
+npm ci --production=false
+
+# Build application
+npm run build
+
+# Test
+NODE_ENV=production node build/index.js
+```
+
+### Systemd Service
+
+1. **Create system user**
+
+```bash
+sudo useradd -r -s /bin/false cinephage
+sudo chown -R cinephage:cinephage /opt/cinephage
+```
+
+2. **Create directories**
+
+```bash
+sudo mkdir -p /opt/cinephage/data /opt/cinephage/logs
+sudo chown cinephage:cinephage /opt/cinephage/data /opt/cinephage/logs
+```
+
+3. **Install service**
+
+```bash
+sudo cp /opt/cinephage/deploy/cinephage.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable cinephage
+```
+
+4. **Configure environment**
+
+```bash
+sudo cp /opt/cinephage/.env.example /opt/cinephage/.env
+sudo chown cinephage:cinephage /opt/cinephage/.env
+sudo chmod 600 /opt/cinephage/.env
+sudo nano /opt/cinephage/.env
+```
+
+Set:
+
+```
+HOST=127.0.0.1
+PORT=3000
+ORIGIN=https://cinephage.yourdomain.com
+```
+
+5. **Start service**
+
+```bash
+sudo systemctl start cinephage
+sudo systemctl status cinephage
+```
+
+### Service Commands
+
+```bash
+sudo systemctl start cinephage    # Start
+sudo systemctl stop cinephage     # Stop
+sudo systemctl restart cinephage  # Restart
+sudo journalctl -u cinephage -f   # View logs
+```
+
+---
+
+## Reverse Proxy
+
+### nginx
+
+Create `/etc/nginx/sites-available/cinephage`:
+
+```nginx
+server {
+    listen 80;
+    server_name cinephage.yourdomain.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name cinephage.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/cinephage.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/cinephage.yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    client_max_body_size 10M;
+}
+```
+
+Enable:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/cinephage /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Caddy
+
+Add to `/etc/caddy/Caddyfile`:
+
+```
+cinephage.yourdomain.com {
+    reverse_proxy localhost:3000
+}
+```
+
+Reload:
+
+```bash
+sudo systemctl reload caddy
+```
+
+Caddy automatically handles SSL via Let's Encrypt.
+
+---
+
+## SSL/TLS Setup
+
+### Using Certbot (nginx)
+
+```bash
+# Install
+sudo apt install certbot python3-certbot-nginx
+
+# Obtain certificate
+sudo certbot --nginx -d cinephage.yourdomain.com
+
+# Verify auto-renewal
+sudo certbot renew --dry-run
+```
+
+### Using Caddy
+
+Caddy provisions SSL automatically. No configuration needed.
+
+---
+
+## Health Check
+
+Test that Cinephage is running:
+
+```bash
+curl http://localhost:3000/health
+```
+
+---
+
+## Monitoring
+
+### Log Files
+
+Logs are stored in the configured log directory (default: `logs/`).
+
+### Systemd Logs
+
+```bash
+# Real-time logs
+sudo journalctl -u cinephage -f
+
+# Today's logs
+sudo journalctl -u cinephage --since today
+
+# Error logs only
+sudo journalctl -u cinephage -p err
+```
+
+---
+
+## Troubleshooting
+
+### Service Won't Start
+
+1. Check permissions: `ls -la /opt/cinephage/`
+2. Check logs: `sudo journalctl -u cinephage -n 50`
+3. Test manually: `sudo -u cinephage NODE_ENV=production node /opt/cinephage/build/index.js`
+
+### Port in Use
+
+```bash
+sudo lsof -i :3000
+```
+
+Change port in `.env` if needed.
+
+---
+
+**See also:** [Installation](../getting-started/installation.md) | [Backup & Restore](backup-restore.md) | [Updating](updating.md)

@@ -268,10 +268,7 @@ export class PortalScannerService {
 	 * Get scan results for a portal
 	 */
 	async getScanResults(portalId: string, status?: ScanResult['status']): Promise<ScanResult[]> {
-		let query = db
-			.select()
-			.from(portalScanResults)
-			.where(eq(portalScanResults.portalId, portalId));
+		let query = db.select().from(portalScanResults).where(eq(portalScanResults.portalId, portalId));
 
 		if (status) {
 			query = db
@@ -447,9 +444,7 @@ export class PortalScannerService {
 		if (status) {
 			const result = db
 				.delete(portalScanResults)
-				.where(
-					and(eq(portalScanResults.portalId, portalId), eq(portalScanResults.status, status))
-				)
+				.where(and(eq(portalScanResults.portalId, portalId), eq(portalScanResults.status, status)))
 				.run();
 			deleted = result.changes;
 		} else {

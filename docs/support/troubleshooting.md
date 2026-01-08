@@ -1,0 +1,276 @@
+# Troubleshooting
+
+Solutions to common issues when using Cinephage.
+
+---
+
+## Installation Issues
+
+### npm install fails
+
+```bash
+# Clear cache and reinstall
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
+```
+
+Verify Node.js version:
+
+```bash
+node --version  # Should be 20+
+```
+
+### Build fails
+
+```bash
+# Run type checking first
+npm run check
+
+# Clear and rebuild
+rm -rf node_modules
+npm ci
+npm run build
+```
+
+### Application won't start
+
+Check if port is in use:
+
+```bash
+lsof -i :3000
+```
+
+Kill conflicting process or change port in `.env`.
+
+---
+
+## Database Issues
+
+### Database locked
+
+**Error**: "SQLITE_BUSY: database is locked"
+
+1. Ensure only one instance is running:
+
+   ```bash
+   ps aux | grep node
+   ```
+
+2. Kill orphaned processes:
+   ```bash
+   pkill -f "node build/index.js"
+   ```
+
+### Database corruption
+
+**Error**: "SQLITE_CORRUPT"
+
+1. Check integrity:
+
+   ```bash
+   sqlite3 data/cinephage.db "PRAGMA integrity_check;"
+   ```
+
+2. Restore from backup:
+
+   ```bash
+   cp backup/cinephage.db data/cinephage.db
+   ```
+
+3. If no backup, reset (loses all data):
+   ```bash
+   rm data/cinephage.db
+   npm run dev  # Recreates on startup
+   ```
+
+---
+
+## Indexer Issues
+
+### No results from indexer
+
+1. Test indexer in **Settings > Integrations > Indexers**
+2. Check if site is accessible in browser
+3. Verify indexer is enabled
+4. Check health status (may be auto-disabled)
+
+### Rate limiting
+
+Wait for rate limit to reset (usually 1-5 minutes). Reduce search frequency or enable more indexers to spread load.
+
+### Cloudflare protection
+
+Some sites require browser-based solving. Options:
+
+- Try accessing site manually first
+- Configure FlareSolverr integration
+- Try a different indexer
+
+### Indexer disabled
+
+Indexers auto-disable after repeated failures:
+
+1. Check health status for error details
+2. Fix the underlying issue
+3. Manually re-enable in Settings
+
+---
+
+## Download Client Issues
+
+### Cannot connect to qBittorrent
+
+1. Verify WebUI is enabled:
+   - qBittorrent > Tools > Options > Web UI
+   - Enable "Web User Interface"
+
+2. Check connection details (host, port, credentials)
+
+3. Test access:
+   ```bash
+   curl http://localhost:8080/api/v2/app/version
+   ```
+
+### Downloads not starting
+
+1. Check qBittorrent is running
+2. Verify torrent was sent (check Cinephage logs)
+3. Verify category exists in qBittorrent
+4. Check disk space
+
+### Import not working
+
+1. Verify root folder is accessible
+2. Check file permissions
+3. For remote clients, configure path mapping
+
+---
+
+## Library Issues
+
+### Files not detected
+
+1. Trigger manual scan: **Settings > Library > Scan**
+2. Verify file extensions are supported (.mkv, .mp4, .avi)
+3. Check root folder configuration
+4. Check logs for scanning errors
+
+### Wrong match
+
+1. Use manual matching in **Library > Unmatched Files**
+2. Rename file to expected pattern:
+   - Movies: `Movie Name (Year)/Movie Name (Year).mkv`
+   - TV: `Series Name/Season 01/Series Name - S01E01.mkv`
+
+3. Use external IDs for guaranteed matching:
+   - `Breaking Bad {tvdb-81189}/Season 01/`
+   - `Inception {tmdb-27205}/`
+
+### Media info not extracted
+
+1. Install ffprobe:
+
+   ```bash
+   sudo apt install ffmpeg
+   ```
+
+2. Set `FFPROBE_PATH` in .env if not in system PATH
+
+---
+
+## Subtitle Issues
+
+### No subtitles found
+
+1. Verify providers are enabled
+2. Check API keys (OpenSubtitles requires key)
+3. Not all content has subtitles available
+4. Try different providers
+
+### Wrong language
+
+1. Check language profile configuration
+2. Verify language priority order
+3. Delete incorrect subtitle and search again
+
+### Provider rate limited
+
+1. Wait for rate limit to reset
+2. Enable multiple providers for redundancy
+3. Reduce automatic search frequency
+
+---
+
+## Streaming Issues
+
+### Stream won't play
+
+1. Check provider health in streaming settings
+2. Try refreshing the stream URL
+3. Try a different provider
+
+### .strm files not working
+
+1. **Check External URL configuration**:
+   - Settings > Streaming
+   - Set to your server's IP and port (e.g., `http://192.168.1.100:3000`)
+   - Include port number!
+
+2. **Update existing .strm files** after changing External URL
+
+3. Verify Cinephage is accessible from player's network
+
+---
+
+## Performance Issues
+
+### High memory usage
+
+Reduce worker counts in `.env`:
+
+```
+WORKER_MAX_STREAMS=5
+WORKER_MAX_IMPORTS=3
+WORKER_MAX_LOGS=500
+```
+
+### Slow searches
+
+1. Reduce number of enabled indexers
+2. Check network latency to indexers
+3. Some indexers are inherently slower
+
+---
+
+## Log Files
+
+### Location
+
+- Default: `logs/` in project directory
+- Docker: `docker logs cinephage`
+- Systemd: `journalctl -u cinephage`
+
+### Useful Commands
+
+```bash
+# View recent logs
+tail -100 logs/cinephage.log
+
+# Follow logs real-time
+tail -f logs/cinephage.log
+
+# Search for errors
+grep -i error logs/cinephage.log
+```
+
+### Log Rotation
+
+Configured via environment variables:
+
+- `LOG_MAX_SIZE_MB`: Max file size (default: 10MB)
+- `LOG_MAX_FILES`: Files to keep (default: 5)
+
+---
+
+**See also:** [FAQ](faq.md) | [Getting Help](getting-help.md) | [Installation](../getting-started/installation.md)

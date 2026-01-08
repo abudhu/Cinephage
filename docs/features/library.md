@@ -1,14 +1,12 @@
-[< Back to Index](../INDEX.md) | [Quality Profiles](quality-profiles.md) | [Monitoring](monitoring.md)
-
 # Library Management
 
-This guide covers how Cinephage manages your media library, including scanning, matching, and organization.
+Cinephage manages your media library through file scanning, TMDB matching, and automatic organization.
 
 ---
 
 ## Library Scanning
 
-Cinephage uses two methods to detect media files:
+Cinephage detects media files using two methods:
 
 ### Real-Time File Watching
 
@@ -162,12 +160,9 @@ sudo apt install ffmpeg
 
 # macOS
 brew install ffmpeg
-
-# Windows
-Download from https://ffmpeg.org/download.html
 ```
 
-If ffprobe is not in PATH, set `FFPROBE_PATH` in `.env`.
+If ffprobe is not in PATH, set `FFPROBE_PATH` in your environment.
 
 ### Without ffprobe
 
@@ -194,8 +189,7 @@ Cinephage organizes imported files using naming templates:
 **TV Shows:**
 
 ```
-{Series Title}/Season {Season}/
-{Series Title} - S{Season}E{Episode} - {Episode Title}.{ext}
+{Series Title}/Season {Season}/{Series Title} - S{Season}E{Episode} - {Episode Title}.{ext}
 ```
 
 ### Configuring Naming
@@ -245,24 +239,16 @@ Files that couldn't be automatically matched appear in the unmatched queue.
 
 ## Library Statistics
 
-View library statistics:
+View library statistics on the **Library** dashboard:
 
 - Total movies/series
 - Files with/without quality data
 - Storage usage per root folder
 - Missing vs downloaded content
 
-Access via **Library** dashboard.
-
 ---
 
 ## Maintenance
-
-### Cleaning Up
-
-- Remove items no longer wanted from library
-- Delete orphaned database entries
-- Clear old import history
 
 ### Database Optimization
 
@@ -274,11 +260,11 @@ sqlite3 data/cinephage.db "VACUUM;"
 
 ### Log Rotation
 
-Library scan logs rotate automatically based on settings:
+Library scan logs rotate automatically:
 
-- `LOG_MAX_SIZE_MB`: Max file size before rotation
-- `LOG_MAX_FILES`: Number of log files to keep
+- `LOG_MAX_SIZE_MB`: Max file size before rotation (default: 10)
+- `LOG_MAX_FILES`: Number of log files to keep (default: 5)
 
 ---
 
-**See also:** [First Steps](../getting-started/first-steps.md) | [Quality Profiles](quality-profiles.md) | [Troubleshooting](../troubleshooting.md)
+**See also:** [Adding Media](../getting-started/adding-media.md) | [Quality Profiles](quality-profiles.md) | [Troubleshooting](../support/troubleshooting.md)

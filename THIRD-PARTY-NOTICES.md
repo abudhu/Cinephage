@@ -44,7 +44,7 @@ Cinephage uses the following npm packages. All are MIT licensed and compatible w
 | better-sqlite3  | MIT     | SQLite database driver               |
 | cheerio         | MIT     | HTML parsing for indexer scraping    |
 | crypto-js       | MIT     | Encryption utilities                 |
-| fast-xml-parser | MIT     | XML parsing for Torznab feeds        |
+| fast-xml-parser | MIT     | XML parsing for Newznab feeds        |
 | js-yaml         | MIT     | YAML parsing for indexer definitions |
 | parse-torrent   | MIT     | Torrent file/magnet parsing          |
 | adm-zip         | MIT     | ZIP file handling                    |

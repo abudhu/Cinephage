@@ -1,8 +1,8 @@
-[< Back to Index](../INDEX.md) | [Quality Profiles](quality-profiles.md) | [Monitoring](monitoring.md)
+# Subtitles
 
-# Subtitle System
+Cinephage includes comprehensive subtitle management with 8 providers and support for 80+ languages.
 
-Cinephage includes comprehensive subtitle management with 6 built-in providers and support for 80+ languages.
+---
 
 ## Providers
 
@@ -14,6 +14,8 @@ Cinephage includes comprehensive subtitle management with 6 built-in providers a
 | YIFY Subtitles | Scraper | YTS movie focus                 |
 | Gestdown       | API     | Addic7ed alternative            |
 | Subf2m         | Scraper | Wide coverage                   |
+| Subscene       | Scraper | Large community database        |
+| Podnapisi      | API     | Slovenian origin, good coverage |
 
 ### Provider Details
 
@@ -22,7 +24,7 @@ Cinephage includes comprehensive subtitle management with 6 built-in providers a
 - Largest subtitle database
 - Hash-based matching for accuracy
 - Requires free account and API key
-- Rate limited (20 requests/day on free tier)
+- Rate limited (20 requests/day on free tier, 200/day VIP)
 
 **Addic7ed**
 
@@ -57,17 +59,29 @@ Cinephage includes comprehensive subtitle management with 6 built-in providers a
 - Community-driven
 - Supports both movies and TV
 
+**Subscene**
+
+- Large community database
+- Extensive language support
+- Both movies and TV shows
+
+**Podnapisi**
+
+- Originally Slovenian, now international
+- API-based access
+- Good quality subtitles
+
 ---
 
 ## Configuration
 
 ### Enabling Providers
 
-1. Navigate to Settings > Integrations > Subtitle Providers
+1. Navigate to **Settings > Integrations > Subtitle Providers**
 2. Toggle providers on/off
 3. Configure API keys where required:
-   - OpenSubtitles: Requires API key
-   - SubDL: Optional API key for higher limits
+   - **OpenSubtitles**: Requires API key
+   - **SubDL**: Optional API key for higher limits
 4. Set provider priority order (drag to reorder)
 
 ### Provider Priority
@@ -88,8 +102,8 @@ Language profiles define which subtitle languages to search for and in what orde
 
 ### Creating a Profile
 
-1. Navigate to Settings > Integrations > Language Profiles
-2. Click "Add Profile"
+1. Navigate to **Settings > Integrations > Language Profiles**
+2. Click **Add Profile**
 3. Add languages in priority order
 4. Configure options:
    - Hearing impaired preference
@@ -132,11 +146,7 @@ Enable automatic subtitle search when media is imported.
 Enable in **Settings > Tasks**:
 
 - **Auto-search on import**: Enable/disable automatic subtitle search
-- **Search trigger**: When to search for subtitles during import
-  - `After metadata` (default): Search after TMDB matching completes
-  - `Immediate`: Search as soon as file is imported
-  - `Both`: Search at both stages
-- **Minimum score**: Only download if match confidence is high enough (set per language profile)
+- **Minimum score**: Only download if match confidence is high enough
 
 ---
 
@@ -145,7 +155,7 @@ Enable in **Settings > Tasks**:
 Search for subtitles manually from media detail pages:
 
 1. Navigate to the movie or episode
-2. Click "Search Subtitles"
+2. Click **Search Subtitles**
 3. Review results from all providers
 4. Select and download preferred subtitle
 
@@ -159,43 +169,15 @@ Results show:
 
 ---
 
-## Supported Languages
-
-150+ languages including regional variants:
-
-### Major Languages
-
-- English, Spanish, French, German, Portuguese, Italian
-- Dutch, Polish, Russian, Turkish, Arabic
-- Japanese, Korean, Chinese (Simplified & Traditional)
-- Hindi, Thai, Vietnamese, Indonesian
-
-### Regional Variants
-
-- Portuguese (Brazil)
-- Chinese (Traditional)
-- Spanish (Latin America)
-- French (Canada)
-
-### Language Codes
-
-Cinephage supports both:
-
-- ISO 639-1 (2-letter codes): en, es, fr
-- ISO 639-2 (3-letter codes): eng, spa, fra
-
----
-
 ## Embedded Subtitle Support
 
-Cinephage recognizes embedded subtitles within video containers (MKV, MP4, etc.) and counts them toward language profile satisfaction.
+Cinephage recognizes embedded subtitles within video containers (MKV, MP4) and counts them toward language profile satisfaction.
 
 ### How It Works
 
-1. During media analysis, Cinephage extracts subtitle track information from the video file using ffprobe
-2. Embedded languages are stored in `mediaInfo.subtitleLanguages`
-3. When checking if a language profile is satisfied, both external subtitle files AND embedded tracks are considered
-4. If embedded subs match a required language, no external download is triggered
+1. During media analysis, Cinephage extracts subtitle track information using ffprobe
+2. Embedded languages are compared against your language profile
+3. If embedded subs match a required language, no external download is triggered
 
 ### Benefits
 
@@ -207,17 +189,10 @@ Cinephage recognizes embedded subtitles within video containers (MKV, MP4, etc.)
 
 - Embedded subtitles are treated as non-forced, non-hearing-impaired
 - If you specifically need forced or HI subtitles, external downloads may still be triggered
-- Language code normalization converts 3-letter codes (eng, fre) to 2-letter (en, fr)
-
-### Visual Distinction
-
-In the UI, embedded subtitles are displayed with their language codes alongside external subtitle files. The system merges both sources to show a complete subtitle inventory for each file.
 
 ---
 
-## Subtitle Management
-
-### File Naming
+## Subtitle File Naming
 
 Subtitles are saved alongside media files:
 
@@ -227,23 +202,6 @@ Movie.Name.2023.1080p.BluRay.en.srt        # English
 Movie.Name.2023.1080p.BluRay.es.srt        # Spanish
 Movie.Name.2023.1080p.BluRay.en.hi.srt     # English (Hearing Impaired)
 ```
-
-### History
-
-View subtitle download history:
-
-- Downloaded subtitles per media item
-- Provider used
-- Download date
-- Manual vs automatic
-
-### Blacklist
-
-Blacklist poor quality subtitles:
-
-1. From subtitle history, click "Blacklist"
-2. Subtitle won't be downloaded again
-3. Future searches skip blacklisted items
 
 ---
 
@@ -262,4 +220,24 @@ Cinephage automatically respects these limits and queues requests when needed.
 
 ---
 
-**See also:** [Quality Profiles](quality-profiles.md) | [Monitoring](monitoring.md) | [Troubleshooting](../troubleshooting.md)
+## Supported Languages
+
+80+ languages including regional variants:
+
+### Major Languages
+
+- English, Spanish, French, German, Portuguese, Italian
+- Dutch, Polish, Russian, Turkish, Arabic
+- Japanese, Korean, Chinese (Simplified & Traditional)
+- Hindi, Thai, Vietnamese, Indonesian
+
+### Regional Variants
+
+- Portuguese (Brazil)
+- Chinese (Traditional)
+- Spanish (Latin America)
+- French (Canada)
+
+---
+
+**See also:** [Monitoring](monitoring.md) | [Library Management](library.md) | [Troubleshooting](../support/troubleshooting.md)

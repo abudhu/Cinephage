@@ -209,7 +209,7 @@ export class RequestBuilder {
 
 	/**
 	 * Set supported params for a search mode.
-	 * Used by Newznab/Torznab indexers to filter out unsupported params.
+	 * Used by Newznab indexers to filter out unsupported params.
 	 * @param mode The search mode (e.g. 'search', 'movie', 'tvsearch')
 	 * @param params List of supported parameter names (lowercase)
 	 */
@@ -423,7 +423,7 @@ export class RequestBuilder {
 			}
 		}
 
-		// Filter inputs by supported params (for Newznab/Torznab)
+		// Filter inputs by supported params (for Newznab)
 		// Uses the 't' param value to determine search mode (e.g., 'movie', 'tvsearch')
 		const searchMode = inputs['t'] || 'search';
 		const filteredInputs = this.filterBySupportedParams(inputs, searchMode);

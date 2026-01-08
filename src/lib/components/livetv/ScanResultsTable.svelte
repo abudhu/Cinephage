@@ -242,11 +242,7 @@
 			</div>
 		</div>
 		<div class="flex gap-2">
-			<button
-				class="btn btn-ghost btn-sm"
-				onclick={loadResults}
-				disabled={loading}
-			>
+			<button class="btn btn-ghost btn-sm" onclick={loadResults} disabled={loading}>
 				{#if loading}
 					<Loader2 class="h-4 w-4 animate-spin" />
 				{:else}
@@ -305,7 +301,7 @@
 				Approve Selected
 			</button>
 			<button
-				class="btn btn-sm btn-ghost"
+				class="btn btn-ghost btn-sm"
 				onclick={ignoreSelected}
 				disabled={approving || ignoring}
 			>
@@ -322,11 +318,7 @@
 	<!-- Clear Ignored Button -->
 	{#if statusFilter === 'ignored' && results.some((r) => r.status === 'ignored')}
 		<div class="mb-4">
-			<button
-				class="btn btn-sm btn-outline btn-error"
-				onclick={clearIgnored}
-				disabled={clearing}
-			>
+			<button class="btn btn-outline btn-sm btn-error" onclick={clearIgnored} disabled={clearing}>
 				{#if clearing}
 					<Loader2 class="h-4 w-4 animate-spin" />
 				{:else}
@@ -467,7 +459,7 @@
 								<td>
 									<div class="flex justify-end gap-1">
 										<button
-											class="btn btn-ghost btn-sm text-success"
+											class="btn text-success btn-ghost btn-sm"
 											onclick={() => {
 												selectedIds = new Set([result.id]);
 												approveSelected();
