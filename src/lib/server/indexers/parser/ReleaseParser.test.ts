@@ -516,9 +516,7 @@ describe('ReleaseParser', () => {
 
 		describe('Multiple ID extraction', () => {
 			it('should extract all three ID types from a single input', () => {
-				const result = extractExternalIds(
-					'Movie {tmdb-12345} {tvdb-81189} {imdb-tt1234567}'
-				);
+				const result = extractExternalIds('Movie {tmdb-12345} {tvdb-81189} {imdb-tt1234567}');
 				expect(result.tmdbId).toBe(12345);
 				expect(result.tvdbId).toBe(81189);
 				expect(result.imdbId).toBe('tt1234567');
