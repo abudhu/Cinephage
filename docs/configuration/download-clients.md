@@ -166,7 +166,7 @@ Example:
 
 - Altmount **Complete directory**: `/complete`
 - Altmount **Symlink import directory**: `/symlinks`
-- RClone mount path: `/mnt/altmountrem`
+- rclone mount path: `/mnt/altmountrem`
 - Cinephage path mapping:
 
 | Client Path | Local Path         |
