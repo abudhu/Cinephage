@@ -74,8 +74,8 @@ Cinephage takes a unified approach to media management. Movies, TV shows, indexe
 ```bash
 mkdir cinephage && cd cinephage
 curl -O https://raw.githubusercontent.com/MoldyTaint/cinephage/main/docker-compose.yaml
-curl -O https://raw.githubusercontent.com/MoldyTaint/cinephage/main/.env.docker.example
-cp .env.docker.example .env
+curl -O https://raw.githubusercontent.com/MoldyTaint/cinephage/main/.env.example
+cp .env.example .env
 ```
 
 Edit `.env` to configure your settings:
