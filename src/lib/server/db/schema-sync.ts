@@ -11,7 +11,17 @@
  */
 
 import Database from 'better-sqlite3';
+import { createHash } from 'crypto';
 import { logger } from '$lib/logging';
+
+/**
+ * Migration definition with metadata for tracking
+ */
+interface MigrationDefinition {
+	version: number;
+	name: string;
+	apply: (sqlite: Database.Database) => void;
+}
 
 /**
  * Current schema version - increment when adding schema changes
@@ -67,6 +77,16 @@ const TABLE_DEFINITIONS: string[] = [
 	`CREATE TABLE IF NOT EXISTS "settings" (
 		"key" text PRIMARY KEY NOT NULL,
 		"value" text NOT NULL
+	)`,
+
+	// Migration tracking table - tracks each migration individually
+	`CREATE TABLE IF NOT EXISTS "schema_migrations" (
+		"version" integer PRIMARY KEY NOT NULL,
+		"name" text NOT NULL,
+		"checksum" text NOT NULL,
+		"applied_at" text NOT NULL,
+		"execution_time_ms" integer,
+		"success" integer DEFAULT 1
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "indexer_definitions" (
@@ -1048,21 +1068,19 @@ const INDEX_DEFINITIONS: string[] = [
 ];
 
 /**
- * Schema updates keyed by version number
- * Each function runs when upgrading TO that version
- *
- * Example for future updates:
- * 2: (sqlite) => {
- *   sqlite.prepare(`ALTER TABLE movies ADD COLUMN new_field TEXT`).run();
- * }
+ * All migrations with metadata for tracking.
+ * Each migration is tracked individually in the schema_migrations table.
+ * Version 1 is the initial schema - handled by TABLE_DEFINITIONS.
  */
-const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
-	// Version 1 is the initial schema - handled by TABLE_DEFINITIONS
+const MIGRATIONS: MigrationDefinition[] = [
 	// Version 2: Add missing tables that were defined in schema.ts but not in schema-sync.ts
-	2: (sqlite) => {
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "profile_size_limits" (
+	{
+		version: 2,
+		name: 'add_profile_tables',
+		apply: (sqlite) => {
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "profile_size_limits" (
 			"profile_id" text PRIMARY KEY NOT NULL,
 			"movie_min_size_gb" real,
 			"movie_max_size_gb" real,
@@ -1071,12 +1089,12 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"is_default" integer DEFAULT false,
 			"updated_at" text
 		)`
-			)
-			.run();
+				)
+				.run();
 
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "custom_formats" (
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "custom_formats" (
 			"id" text PRIMARY KEY NOT NULL,
 			"name" text NOT NULL,
 			"description" text,
@@ -1087,12 +1105,12 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"created_at" text,
 			"updated_at" text
 		)`
-			)
-			.run();
+				)
+				.run();
 
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "naming_presets" (
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "naming_presets" (
 			"id" text PRIMARY KEY NOT NULL,
 			"name" text NOT NULL,
 			"description" text,
@@ -1100,86 +1118,104 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"is_built_in" integer DEFAULT false,
 			"created_at" integer
 		)`
-			)
-			.run();
+				)
+				.run();
+		}
 	},
 
 	// Version 3: Add read_only column to root_folders for virtual mount support (NZBDav)
-	3: (sqlite) => {
-		// Only add column if it doesn't exist (may already exist from fresh TABLE_DEFINITIONS)
-		if (!columnExists(sqlite, 'root_folders', 'read_only')) {
-			sqlite.prepare(`ALTER TABLE root_folders ADD COLUMN read_only INTEGER DEFAULT 0`).run();
+	{
+		version: 3,
+		name: 'add_root_folders_read_only',
+		apply: (sqlite) => {
+			// Only add column if it doesn't exist (may already exist from fresh TABLE_DEFINITIONS)
+			if (!columnExists(sqlite, 'root_folders', 'read_only')) {
+				sqlite.prepare(`ALTER TABLE root_folders ADD COLUMN read_only INTEGER DEFAULT 0`).run();
+			}
 		}
 	},
 
 	// Version 4: Fix invalid scoring profile references and ensure default profile exists
-	4: (sqlite) => {
-		// Ensure a default profile exists (set 'compact' as default if none)
-		const hasDefault = sqlite.prepare(`SELECT id FROM scoring_profiles WHERE is_default = 1`).get();
+	{
+		version: 4,
+		name: 'fix_scoring_profile_references',
+		apply: (sqlite) => {
+			// Ensure a default profile exists (set 'compact' as default if none)
+			const hasDefault = sqlite
+				.prepare(`SELECT id FROM scoring_profiles WHERE is_default = 1`)
+				.get();
 
-		if (!hasDefault) {
-			const validProfiles = sqlite.prepare(`SELECT id FROM scoring_profiles`).all() as {
-				id: string;
-			}[];
-			const validIds = new Set(validProfiles.map((p) => p.id));
+			if (!hasDefault) {
+				const validProfiles = sqlite.prepare(`SELECT id FROM scoring_profiles`).all() as {
+					id: string;
+				}[];
+				const validIds = new Set(validProfiles.map((p) => p.id));
 
-			if (validProfiles.length > 0) {
-				const defaultId = validIds.has('compact') ? 'compact' : validProfiles[0].id;
-				sqlite.prepare(`UPDATE scoring_profiles SET is_default = 1 WHERE id = ?`).run(defaultId);
-				logger.info(`[SchemaSync] Set default scoring profile to '${defaultId}'`);
+				if (validProfiles.length > 0) {
+					const defaultId = validIds.has('compact') ? 'compact' : validProfiles[0].id;
+					sqlite.prepare(`UPDATE scoring_profiles SET is_default = 1 WHERE id = ?`).run(defaultId);
+					logger.info(`[SchemaSync] Set default scoring profile to '${defaultId}'`);
+				}
 			}
-		}
 
-		// Clear invalid profile references (set to NULL so user can choose)
-		// This prevents auto-downloads with unwanted profiles
-		const invalidMovies = sqlite
-			.prepare(
-				`UPDATE movies SET scoring_profile_id = NULL
+			// Clear invalid profile references (set to NULL so user can choose)
+			// This prevents auto-downloads with unwanted profiles
+			const invalidMovies = sqlite
+				.prepare(
+					`UPDATE movies SET scoring_profile_id = NULL
 				 WHERE scoring_profile_id IS NOT NULL
 				 AND scoring_profile_id != ''
 				 AND scoring_profile_id NOT IN (SELECT id FROM scoring_profiles)`
-			)
-			.run();
+				)
+				.run();
 
-		if (invalidMovies.changes > 0) {
-			logger.info(
-				`[SchemaSync] Cleared ${invalidMovies.changes} movies with invalid profile references`
-			);
-		}
+			if (invalidMovies.changes > 0) {
+				logger.info(
+					`[SchemaSync] Cleared ${invalidMovies.changes} movies with invalid profile references`
+				);
+			}
 
-		const invalidSeries = sqlite
-			.prepare(
-				`UPDATE series SET scoring_profile_id = NULL
+			const invalidSeries = sqlite
+				.prepare(
+					`UPDATE series SET scoring_profile_id = NULL
 				 WHERE scoring_profile_id IS NOT NULL
 				 AND scoring_profile_id != ''
 				 AND scoring_profile_id NOT IN (SELECT id FROM scoring_profiles)`
-			)
-			.run();
+				)
+				.run();
 
-		if (invalidSeries.changes > 0) {
-			logger.info(
-				`[SchemaSync] Cleared ${invalidSeries.changes} series with invalid profile references`
-			);
+			if (invalidSeries.changes > 0) {
+				logger.info(
+					`[SchemaSync] Cleared ${invalidSeries.changes} series with invalid profile references`
+				);
+			}
 		}
 	},
 
 	// Version 5: Add preserve_symlinks column to root_folders for NZBDav/rclone symlink preservation
-	5: (sqlite) => {
-		// Only add column if it doesn't exist (may already exist from fresh TABLE_DEFINITIONS)
-		if (!columnExists(sqlite, 'root_folders', 'preserve_symlinks')) {
-			sqlite
-				.prepare(`ALTER TABLE root_folders ADD COLUMN preserve_symlinks INTEGER DEFAULT 0`)
-				.run();
-			logger.info('[SchemaSync] Added preserve_symlinks column to root_folders');
+	{
+		version: 5,
+		name: 'add_root_folders_preserve_symlinks',
+		apply: (sqlite) => {
+			// Only add column if it doesn't exist (may already exist from fresh TABLE_DEFINITIONS)
+			if (!columnExists(sqlite, 'root_folders', 'preserve_symlinks')) {
+				sqlite
+					.prepare(`ALTER TABLE root_folders ADD COLUMN preserve_symlinks INTEGER DEFAULT 0`)
+					.run();
+				logger.info('[SchemaSync] Added preserve_symlinks column to root_folders');
+			}
 		}
 	},
 
 	// Version 6: Add NZB streaming tables
-	6: (sqlite) => {
-		// Create NNTP servers table
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "nntp_servers" (
+	{
+		version: 6,
+		name: 'add_nzb_streaming_tables',
+		apply: (sqlite) => {
+			// Create NNTP servers table
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "nntp_servers" (
 					"id" text PRIMARY KEY NOT NULL,
 					"name" text NOT NULL,
 					"host" text NOT NULL,
@@ -1198,13 +1234,13 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 					"created_at" text,
 					"updated_at" text
 				)`
-			)
-			.run();
+				)
+				.run();
 
-		// Create NZB stream mounts table
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "nzb_stream_mounts" (
+			// Create NZB stream mounts table
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "nzb_stream_mounts" (
 					"id" text PRIMARY KEY NOT NULL,
 					"nzb_hash" text NOT NULL UNIQUE,
 					"title" text NOT NULL,
@@ -1228,81 +1264,91 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 					"created_at" text,
 					"updated_at" text
 				)`
-			)
-			.run();
+				)
+				.run();
 
-		// Create indexes
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nntp_servers_enabled" ON "nntp_servers" ("enabled")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nntp_servers_priority" ON "nntp_servers" ("priority")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nntp_servers_download_client" ON "nntp_servers" ("download_client_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_status" ON "nzb_stream_mounts" ("status")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_movie" ON "nzb_stream_mounts" ("movie_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_series" ON "nzb_stream_mounts" ("series_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_expires" ON "nzb_stream_mounts" ("expires_at")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_hash" ON "nzb_stream_mounts" ("nzb_hash")`
-			)
-			.run();
+			// Create indexes
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nntp_servers_enabled" ON "nntp_servers" ("enabled")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nntp_servers_priority" ON "nntp_servers" ("priority")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nntp_servers_download_client" ON "nntp_servers" ("download_client_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_status" ON "nzb_stream_mounts" ("status")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_movie" ON "nzb_stream_mounts" ("movie_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_series" ON "nzb_stream_mounts" ("series_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_expires" ON "nzb_stream_mounts" ("expires_at")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_hash" ON "nzb_stream_mounts" ("nzb_hash")`
+				)
+				.run();
 
-		logger.info('[SchemaSync] Created NZB streaming tables (nntp_servers, nzb_stream_mounts)');
+			logger.info('[SchemaSync] Created NZB streaming tables (nntp_servers, nzb_stream_mounts)');
+		}
 	},
 
 	// Version 7: Add streamability and extraction columns for compressed archive support
-	7: (sqlite) => {
-		// Add new columns to nzb_stream_mounts (only if they don't exist)
-		if (!columnExists(sqlite, 'nzb_stream_mounts', 'streamability')) {
-			sqlite.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "streamability" text`).run();
-		}
-		if (!columnExists(sqlite, 'nzb_stream_mounts', 'extracted_file_path')) {
-			sqlite.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "extracted_file_path" text`).run();
-		}
-		if (!columnExists(sqlite, 'nzb_stream_mounts', 'extraction_progress')) {
-			sqlite
-				.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "extraction_progress" integer`)
-				.run();
-		}
+	{
+		version: 7,
+		name: 'add_nzb_extraction_columns',
+		apply: (sqlite) => {
+			// Add new columns to nzb_stream_mounts (only if they don't exist)
+			if (!columnExists(sqlite, 'nzb_stream_mounts', 'streamability')) {
+				sqlite.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "streamability" text`).run();
+			}
+			if (!columnExists(sqlite, 'nzb_stream_mounts', 'extracted_file_path')) {
+				sqlite
+					.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "extracted_file_path" text`)
+					.run();
+			}
+			if (!columnExists(sqlite, 'nzb_stream_mounts', 'extraction_progress')) {
+				sqlite
+					.prepare(`ALTER TABLE "nzb_stream_mounts" ADD COLUMN "extraction_progress" integer`)
+					.run();
+			}
 
-		logger.info('[SchemaSync] Added streamability and extraction columns to nzb_stream_mounts');
+			logger.info('[SchemaSync] Added streamability and extraction columns to nzb_stream_mounts');
+		}
 	},
 
 	// Version 8: Fix nzb_stream_mounts status CHECK constraint to include extraction states
-	8: (sqlite) => {
-		// SQLite doesn't support ALTER TABLE to modify CHECK constraints
-		// Need to recreate the table with the correct constraint
+	{
+		version: 8,
+		name: 'fix_nzb_mounts_check_constraint',
+		apply: (sqlite) => {
+			// SQLite doesn't support ALTER TABLE to modify CHECK constraints
+			// Need to recreate the table with the correct constraint
 
-		// Create new table with correct CHECK constraint
-		sqlite
-			.prepare(
-				`CREATE TABLE "nzb_stream_mounts_new" (
+			// Create new table with correct CHECK constraint
+			sqlite
+				.prepare(
+					`CREATE TABLE "nzb_stream_mounts_new" (
 				"id" text PRIMARY KEY NOT NULL,
 				"nzb_hash" text NOT NULL UNIQUE,
 				"title" text NOT NULL,
@@ -1329,120 +1375,126 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 				"created_at" text,
 				"updated_at" text
 			)`
-			)
-			.run();
+				)
+				.run();
 
-		// Copy data from old table
-		sqlite
-			.prepare(
-				`INSERT INTO "nzb_stream_mounts_new" SELECT
+			// Copy data from old table
+			sqlite
+				.prepare(
+					`INSERT INTO "nzb_stream_mounts_new" SELECT
 				id, nzb_hash, title, indexer_id, release_guid, download_url,
 				movie_id, series_id, season_number, episode_ids,
 				file_count, total_size, media_files, rar_info, password,
 				status, error_message, streamability, extracted_file_path, extraction_progress,
 				last_accessed_at, access_count, expires_at, created_at, updated_at
 			FROM "nzb_stream_mounts"`
-			)
-			.run();
+				)
+				.run();
 
-		// Drop old table
-		sqlite.prepare(`DROP TABLE "nzb_stream_mounts"`).run();
+			// Drop old table
+			sqlite.prepare(`DROP TABLE "nzb_stream_mounts"`).run();
 
-		// Rename new table
-		sqlite.prepare(`ALTER TABLE "nzb_stream_mounts_new" RENAME TO "nzb_stream_mounts"`).run();
+			// Rename new table
+			sqlite.prepare(`ALTER TABLE "nzb_stream_mounts_new" RENAME TO "nzb_stream_mounts"`).run();
 
-		// Recreate indexes
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_status" ON "nzb_stream_mounts" ("status")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_movie" ON "nzb_stream_mounts" ("movie_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_series" ON "nzb_stream_mounts" ("series_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_expires" ON "nzb_stream_mounts" ("expires_at")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_hash" ON "nzb_stream_mounts" ("nzb_hash")`
-			)
-			.run();
+			// Recreate indexes
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_status" ON "nzb_stream_mounts" ("status")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_movie" ON "nzb_stream_mounts" ("movie_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_series" ON "nzb_stream_mounts" ("series_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_expires" ON "nzb_stream_mounts" ("expires_at")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_nzb_mounts_hash" ON "nzb_stream_mounts" ("nzb_hash")`
+				)
+				.run();
 
-		logger.info(
-			'[SchemaSync] Fixed nzb_stream_mounts status CHECK constraint to include extraction states'
-		);
+			logger.info(
+				'[SchemaSync] Fixed nzb_stream_mounts status CHECK constraint to include extraction states'
+			);
+		}
 	},
 
 	// Version 9: Remove deprecated qualityPresets system in favor of scoringProfiles
-	9: (sqlite) => {
-		// Step 1: Ensure default scoring profile exists
-		const hasDefault = sqlite.prepare(`SELECT id FROM scoring_profiles WHERE is_default = 1`).get();
-		let defaultProfileId = 'balanced';
+	{
+		version: 9,
+		name: 'remove_quality_presets',
+		apply: (sqlite) => {
+			// Step 1: Ensure default scoring profile exists
+			const hasDefault = sqlite
+				.prepare(`SELECT id FROM scoring_profiles WHERE is_default = 1`)
+				.get();
+			let defaultProfileId = 'balanced';
 
-		if (!hasDefault) {
-			const validProfiles = sqlite.prepare(`SELECT id FROM scoring_profiles`).all() as {
-				id: string;
-			}[];
-			if (validProfiles.length > 0) {
-				const validIds = new Set(validProfiles.map((p) => p.id));
-				defaultProfileId = validIds.has('balanced') ? 'balanced' : validProfiles[0].id;
-				sqlite
-					.prepare(`UPDATE scoring_profiles SET is_default = 1 WHERE id = ?`)
+			if (!hasDefault) {
+				const validProfiles = sqlite.prepare(`SELECT id FROM scoring_profiles`).all() as {
+					id: string;
+				}[];
+				if (validProfiles.length > 0) {
+					const validIds = new Set(validProfiles.map((p) => p.id));
+					defaultProfileId = validIds.has('balanced') ? 'balanced' : validProfiles[0].id;
+					sqlite
+						.prepare(`UPDATE scoring_profiles SET is_default = 1 WHERE id = ?`)
+						.run(defaultProfileId);
+				}
+			} else {
+				defaultProfileId = (hasDefault as { id: string }).id;
+			}
+
+			// Step 2: Migrate movies with quality_preset_id but no scoring_profile_id
+			if (columnExists(sqlite, 'movies', 'quality_preset_id')) {
+				const migratedMovies = sqlite
+					.prepare(
+						`UPDATE movies SET scoring_profile_id = ?
+					 WHERE (scoring_profile_id IS NULL OR scoring_profile_id = '')
+					 AND quality_preset_id IS NOT NULL`
+					)
 					.run(defaultProfileId);
-			}
-		} else {
-			defaultProfileId = (hasDefault as { id: string }).id;
-		}
 
-		// Step 2: Migrate movies with quality_preset_id but no scoring_profile_id
-		if (columnExists(sqlite, 'movies', 'quality_preset_id')) {
-			const migratedMovies = sqlite
-				.prepare(
-					`UPDATE movies SET scoring_profile_id = ?
+				if (migratedMovies.changes > 0) {
+					logger.info(
+						`[SchemaSync] Migrated ${migratedMovies.changes} movies from qualityPresets to scoringProfiles`
+					);
+				}
+			}
+
+			// Step 3: Migrate series with quality_preset_id but no scoring_profile_id
+			if (columnExists(sqlite, 'series', 'quality_preset_id')) {
+				const migratedSeries = sqlite
+					.prepare(
+						`UPDATE series SET scoring_profile_id = ?
 					 WHERE (scoring_profile_id IS NULL OR scoring_profile_id = '')
 					 AND quality_preset_id IS NOT NULL`
-				)
-				.run(defaultProfileId);
+					)
+					.run(defaultProfileId);
 
-			if (migratedMovies.changes > 0) {
-				logger.info(
-					`[SchemaSync] Migrated ${migratedMovies.changes} movies from qualityPresets to scoringProfiles`
-				);
+				if (migratedSeries.changes > 0) {
+					logger.info(
+						`[SchemaSync] Migrated ${migratedSeries.changes} series from qualityPresets to scoringProfiles`
+					);
+				}
 			}
-		}
 
-		// Step 3: Migrate series with quality_preset_id but no scoring_profile_id
-		if (columnExists(sqlite, 'series', 'quality_preset_id')) {
-			const migratedSeries = sqlite
-				.prepare(
-					`UPDATE series SET scoring_profile_id = ?
-					 WHERE (scoring_profile_id IS NULL OR scoring_profile_id = '')
-					 AND quality_preset_id IS NOT NULL`
-				)
-				.run(defaultProfileId);
-
-			if (migratedSeries.changes > 0) {
-				logger.info(
-					`[SchemaSync] Migrated ${migratedSeries.changes} series from qualityPresets to scoringProfiles`
-				);
-			}
-		}
-
-		// Step 4: Drop quality_preset_id column from movies (requires table recreation)
-		if (columnExists(sqlite, 'movies', 'quality_preset_id')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE "movies_new" (
+			// Step 4: Drop quality_preset_id column from movies (requires table recreation)
+			if (columnExists(sqlite, 'movies', 'quality_preset_id')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE "movies_new" (
 					"id" text PRIMARY KEY NOT NULL,
 					"tmdb_id" integer NOT NULL UNIQUE,
 					"imdb_id" text,
@@ -1465,36 +1517,36 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 					"wants_subtitles" integer DEFAULT true,
 					"last_search_time" text
 				)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`INSERT INTO "movies_new" SELECT
+				sqlite
+					.prepare(
+						`INSERT INTO "movies_new" SELECT
 					id, tmdb_id, imdb_id, title, original_title, year, overview,
 					poster_path, backdrop_path, runtime, genres, path, root_folder_id,
 					scoring_profile_id, language_profile_id, monitored, minimum_availability,
 					added, has_file, wants_subtitles, last_search_time
 				FROM "movies"`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite.prepare(`DROP TABLE "movies"`).run();
-			sqlite.prepare(`ALTER TABLE "movies_new" RENAME TO "movies"`).run();
+				sqlite.prepare(`DROP TABLE "movies"`).run();
+				sqlite.prepare(`ALTER TABLE "movies_new" RENAME TO "movies"`).run();
 
-			// Recreate indexes
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_movies_monitored_hasfile" ON "movies" ("monitored", "has_file")`
-				)
-				.run();
-		}
+				// Recreate indexes
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_movies_monitored_hasfile" ON "movies" ("monitored", "has_file")`
+					)
+					.run();
+			}
 
-		// Step 5: Drop quality_preset_id column from series (requires table recreation)
-		if (columnExists(sqlite, 'series', 'quality_preset_id')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE "series_new" (
+			// Step 5: Drop quality_preset_id column from series (requires table recreation)
+			if (columnExists(sqlite, 'series', 'quality_preset_id')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE "series_new" (
 					"id" text PRIMARY KEY NOT NULL,
 					"tmdb_id" integer NOT NULL UNIQUE,
 					"tvdb_id" integer,
@@ -1522,50 +1574,54 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 					"episode_file_count" integer DEFAULT 0,
 					"wants_subtitles" integer DEFAULT true
 				)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`INSERT INTO "series_new" SELECT
+				sqlite
+					.prepare(
+						`INSERT INTO "series_new" SELECT
 					id, tmdb_id, tvdb_id, imdb_id, title, original_title, year, overview,
 					poster_path, backdrop_path, status, network, genres, path, root_folder_id,
 					scoring_profile_id, language_profile_id, monitored, monitor_new_items,
 					monitor_specials, season_folder, series_type, added, episode_count,
 					episode_file_count, wants_subtitles
 				FROM "series"`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite.prepare(`DROP TABLE "series"`).run();
-			sqlite.prepare(`ALTER TABLE "series_new" RENAME TO "series"`).run();
+				sqlite.prepare(`DROP TABLE "series"`).run();
+				sqlite.prepare(`ALTER TABLE "series_new" RENAME TO "series"`).run();
 
-			// Recreate indexes
-			sqlite
-				.prepare(`CREATE INDEX IF NOT EXISTS "idx_series_monitored" ON "series" ("monitored")`)
-				.run();
+				// Recreate indexes
+				sqlite
+					.prepare(`CREATE INDEX IF NOT EXISTS "idx_series_monitored" ON "series" ("monitored")`)
+					.run();
+			}
+
+			// Step 6: Drop quality_presets table
+			if (tableExists(sqlite, 'quality_presets')) {
+				sqlite.prepare(`DROP TABLE "quality_presets"`).run();
+				logger.info('[SchemaSync] Dropped deprecated quality_presets table');
+			}
+
+			logger.info(
+				'[SchemaSync] Completed migration from qualityPresets to scoringProfiles (Version 9)'
+			);
 		}
-
-		// Step 6: Drop quality_presets table
-		if (tableExists(sqlite, 'quality_presets')) {
-			sqlite.prepare(`DROP TABLE "quality_presets"`).run();
-			logger.info('[SchemaSync] Dropped deprecated quality_presets table');
-		}
-
-		logger.info(
-			'[SchemaSync] Completed migration from qualityPresets to scoringProfiles (Version 9)'
-		);
 	},
 
 	// Version 10: Flag series with broken episode metadata for automatic repair
-	10: (sqlite) => {
-		logger.info('[SchemaSync] Checking for series with broken episode metadata...');
+	{
+		version: 10,
+		name: 'flag_broken_series_metadata',
+		apply: (sqlite) => {
+			logger.info('[SchemaSync] Checking for series with broken episode metadata...');
 
-		// Find series that have episode_files but no episodes in the database
-		// These series were created through the unmatched endpoint bug
-		const brokenSeries = sqlite
-			.prepare(
-				`
+			// Find series that have episode_files but no episodes in the database
+			// These series were created through the unmatched endpoint bug
+			const brokenSeries = sqlite
+				.prepare(
+					`
 				SELECT DISTINCT s.id, s.tmdb_id, s.title
 				FROM series s
 				INNER JOIN episode_files ef ON ef.series_id = s.id
@@ -1573,52 +1629,60 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 					SELECT 1 FROM episodes e WHERE e.series_id = s.id
 				)
 			`
-			)
-			.all() as Array<{ id: string; tmdb_id: number; title: string }>;
+				)
+				.all() as Array<{ id: string; tmdb_id: number; title: string }>;
 
-		if (brokenSeries.length === 0) {
-			logger.info('[SchemaSync] No series need episode metadata repair');
-			return;
+			if (brokenSeries.length === 0) {
+				logger.info('[SchemaSync] No series need episode metadata repair');
+				return;
+			}
+
+			logger.info('[SchemaSync] Found series needing episode metadata repair', {
+				count: brokenSeries.length,
+				series: brokenSeries.map((s) => s.title)
+			});
+
+			// Flag each series for repair by the DataRepairService on startup
+			// We use settings table since TMDB API calls need to be async
+			for (const series of brokenSeries) {
+				sqlite
+					.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`)
+					.run(
+						`repair_series_${series.id}`,
+						JSON.stringify({ tmdbId: series.tmdb_id, title: series.title })
+					);
+			}
+
+			logger.info('[SchemaSync] Queued series for metadata repair on next startup', {
+				count: brokenSeries.length
+			});
 		}
-
-		logger.info('[SchemaSync] Found series needing episode metadata repair', {
-			count: brokenSeries.length,
-			series: brokenSeries.map((s) => s.title)
-		});
-
-		// Flag each series for repair by the DataRepairService on startup
-		// We use settings table since TMDB API calls need to be async
-		for (const series of brokenSeries) {
-			sqlite
-				.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`)
-				.run(
-					`repair_series_${series.id}`,
-					JSON.stringify({ tmdbId: series.tmdb_id, title: series.title })
-				);
-		}
-
-		logger.info('[SchemaSync] Queued series for metadata repair on next startup', {
-			count: brokenSeries.length
-		});
 	},
 
 	// Version 11: Add temp path columns to download_clients for SABnzbd dual folder support
-	11: (sqlite) => {
-		if (!columnExists(sqlite, 'download_clients', 'temp_path_local')) {
-			sqlite.prepare(`ALTER TABLE download_clients ADD COLUMN temp_path_local TEXT`).run();
+	{
+		version: 11,
+		name: 'add_download_client_temp_paths',
+		apply: (sqlite) => {
+			if (!columnExists(sqlite, 'download_clients', 'temp_path_local')) {
+				sqlite.prepare(`ALTER TABLE download_clients ADD COLUMN temp_path_local TEXT`).run();
+			}
+			if (!columnExists(sqlite, 'download_clients', 'temp_path_remote')) {
+				sqlite.prepare(`ALTER TABLE download_clients ADD COLUMN temp_path_remote TEXT`).run();
+			}
+			logger.info('[SchemaSync] Added temp path columns to download_clients for SABnzbd');
 		}
-		if (!columnExists(sqlite, 'download_clients', 'temp_path_remote')) {
-			sqlite.prepare(`ALTER TABLE download_clients ADD COLUMN temp_path_remote TEXT`).run();
-		}
-		logger.info('[SchemaSync] Added temp path columns to download_clients for SABnzbd');
 	},
 
 	// Version 12: Add media_browser_servers table for Jellyfin/Emby integration
-	12: (sqlite) => {
-		if (!tableExists(sqlite, 'media_browser_servers')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "media_browser_servers" (
+	{
+		version: 12,
+		name: 'add_media_browser_servers',
+		apply: (sqlite) => {
+			if (!tableExists(sqlite, 'media_browser_servers')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "media_browser_servers" (
 						"id" text PRIMARY KEY NOT NULL,
 						"name" text NOT NULL,
 						"server_type" text NOT NULL CHECK ("server_type" IN ('jellyfin', 'emby')),
@@ -1639,33 +1703,41 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
+			}
+			logger.info('[SchemaSync] Added media_browser_servers table for Jellyfin/Emby integration');
 		}
-		logger.info('[SchemaSync] Added media_browser_servers table for Jellyfin/Emby integration');
 	},
 
 	// Version 13: Remove Live TV feature - drop all related tables
-	13: (sqlite) => {
-		// Drop all Live TV related tables
-		sqlite.prepare(`DROP TABLE IF EXISTS "channel_lineup_items"`).run();
-		sqlite.prepare(`DROP TABLE IF EXISTS "channel_categories"`).run();
-		sqlite.prepare(`DROP TABLE IF EXISTS "epg_programs"`).run();
-		sqlite.prepare(`DROP TABLE IF EXISTS "epg_sources"`).run();
-		sqlite.prepare(`DROP TABLE IF EXISTS "live_events"`).run();
-		sqlite.prepare(`DROP TABLE IF EXISTS "live_tv_settings"`).run();
-		sqlite.prepare(`DROP TABLE IF EXISTS "stalker_portal_accounts"`).run();
+	{
+		version: 13,
+		name: 'remove_live_tv_v1',
+		apply: (sqlite) => {
+			// Drop all Live TV related tables
+			sqlite.prepare(`DROP TABLE IF EXISTS "channel_lineup_items"`).run();
+			sqlite.prepare(`DROP TABLE IF EXISTS "channel_categories"`).run();
+			sqlite.prepare(`DROP TABLE IF EXISTS "epg_programs"`).run();
+			sqlite.prepare(`DROP TABLE IF EXISTS "epg_sources"`).run();
+			sqlite.prepare(`DROP TABLE IF EXISTS "live_events"`).run();
+			sqlite.prepare(`DROP TABLE IF EXISTS "live_tv_settings"`).run();
+			sqlite.prepare(`DROP TABLE IF EXISTS "stalker_portal_accounts"`).run();
 
-		logger.info('[SchemaSync] Removed Live TV feature - dropped all related tables');
+			logger.info('[SchemaSync] Removed Live TV feature - dropped all related tables');
+		}
 	},
 
 	// Version 14: Add new Live TV feature (external API-based)
-	14: (sqlite) => {
-		// Create Live TV tables
-		if (!tableExists(sqlite, 'livetv_channels_cache')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "livetv_channels_cache" (
+	{
+		version: 14,
+		name: 'add_live_tv_external_api',
+		apply: (sqlite) => {
+			// Create Live TV tables
+			if (!tableExists(sqlite, 'livetv_channels_cache')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "livetv_channels_cache" (
 						"id" text PRIMARY KEY NOT NULL,
 						"name" text NOT NULL,
 						"country" text NOT NULL,
@@ -1676,28 +1748,28 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"cached_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
-		}
+					)
+					.run();
+			}
 
-		if (!tableExists(sqlite, 'livetv_categories')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "livetv_categories" (
+			if (!tableExists(sqlite, 'livetv_categories')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "livetv_categories" (
 						"id" text PRIMARY KEY NOT NULL,
 						"name" text NOT NULL,
 						"position" integer NOT NULL DEFAULT 0,
 						"color" text,
 						"created_at" text
 					)`
-				)
-				.run();
-		}
+					)
+					.run();
+			}
 
-		if (!tableExists(sqlite, 'livetv_lineup')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "livetv_lineup" (
+			if (!tableExists(sqlite, 'livetv_lineup')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "livetv_lineup" (
 						"id" text PRIMARY KEY NOT NULL,
 						"channel_id" text NOT NULL,
 						"display_name" text,
@@ -1707,14 +1779,14 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"enabled" integer DEFAULT 1,
 						"added_at" text
 					)`
-				)
-				.run();
-		}
+					)
+					.run();
+			}
 
-		if (!tableExists(sqlite, 'livetv_events_cache')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "livetv_events_cache" (
+			if (!tableExists(sqlite, 'livetv_events_cache')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "livetv_events_cache" (
 						"id" text PRIMARY KEY NOT NULL,
 						"sport" text NOT NULL,
 						"home_team" text,
@@ -1729,82 +1801,90 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"channels" text,
 						"cached_at" text
 					)`
-				)
-				.run();
-		}
+					)
+					.run();
+			}
 
-		if (!tableExists(sqlite, 'livetv_settings')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "livetv_settings" (
+			if (!tableExists(sqlite, 'livetv_settings')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "livetv_settings" (
 						"key" text PRIMARY KEY NOT NULL,
 						"value" text NOT NULL
 					)`
+					)
+					.run();
+			}
+
+			// Create indexes
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_cache_country" ON "livetv_channels_cache" ("country")`
 				)
 				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_cache_status" ON "livetv_channels_cache" ("status")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_categories_position" ON "livetv_categories" ("position")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_lineup_position" ON "livetv_lineup" ("position")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_lineup_category" ON "livetv_lineup" ("category_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_lineup_channel" ON "livetv_lineup" ("channel_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_events_sport" ON "livetv_events_cache" ("sport")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_events_status" ON "livetv_events_cache" ("status")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_events_time" ON "livetv_events_cache" ("start_time")`
+				)
+				.run();
+
+			logger.info('[SchemaSync] Added Live TV feature tables');
 		}
-
-		// Create indexes
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_cache_country" ON "livetv_channels_cache" ("country")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_cache_status" ON "livetv_channels_cache" ("status")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_categories_position" ON "livetv_categories" ("position")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_lineup_position" ON "livetv_lineup" ("position")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_lineup_category" ON "livetv_lineup" ("category_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_lineup_channel" ON "livetv_lineup" ("channel_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_events_sport" ON "livetv_events_cache" ("sport")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_events_status" ON "livetv_events_cache" ("status")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_events_time" ON "livetv_events_cache" ("start_time")`
-			)
-			.run();
-
-		logger.info('[SchemaSync] Added Live TV feature tables');
 	},
 
 	// Version 15: Remove Live TV EPG cache (unused - API does not provide EPG)
-	15: (sqlite) => {
-		sqlite.prepare(`DROP TABLE IF EXISTS "livetv_epg_cache"`).run();
-		logger.info('[SchemaSync] Removed unused livetv_epg_cache table');
+	{
+		version: 15,
+		name: 'remove_live_tv_epg_cache',
+		apply: (sqlite) => {
+			sqlite.prepare(`DROP TABLE IF EXISTS "livetv_epg_cache"`).run();
+			logger.info('[SchemaSync] Removed unused livetv_epg_cache table');
+		}
 	},
 
 	// Version 16: Add Live TV stream health tracking table
-	16: (sqlite) => {
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "livetv_stream_health" (
+	{
+		version: 16,
+		name: 'add_live_tv_stream_health',
+		apply: (sqlite) => {
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "livetv_stream_health" (
 			"channel_id" text PRIMARY KEY NOT NULL,
 			"health" text DEFAULT 'unknown' NOT NULL CHECK ("health" IN ('healthy', 'warning', 'failing', 'offline', 'unknown')),
 			"api_status" text DEFAULT 'unknown' CHECK ("api_status" IN ('online', 'offline', 'unknown')),
@@ -1826,27 +1906,31 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"created_at" text,
 			"updated_at" text
 		)`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_health_status" ON "livetv_stream_health" ("health")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_health_api_status" ON "livetv_stream_health" ("api_status")`
-			)
-			.run();
-		logger.info('[SchemaSync] Added livetv_stream_health table for stream health tracking');
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_health_status" ON "livetv_stream_health" ("health")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_health_api_status" ON "livetv_stream_health" ("api_status")`
+				)
+				.run();
+			logger.info('[SchemaSync] Added livetv_stream_health table for stream health tracking');
+		}
 	},
 
 	// Version 17: Add Live TV EPG with XMLTV support
-	17: (sqlite) => {
-		// EPG Sources table
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "livetv_epg_sources" (
+	{
+		version: 17,
+		name: 'add_live_tv_epg_xmltv',
+		apply: (sqlite) => {
+			// EPG Sources table
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "livetv_epg_sources" (
 			"id" text PRIMARY KEY NOT NULL,
 			"name" text NOT NULL,
 			"url" text NOT NULL UNIQUE,
@@ -1859,13 +1943,13 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"created_at" text,
 			"updated_at" text
 		)`
-			)
-			.run();
+				)
+				.run();
 
-		// EPG Channel Map table
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "livetv_epg_channel_map" (
+			// EPG Channel Map table
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "livetv_epg_channel_map" (
 			"id" text PRIMARY KEY NOT NULL,
 			"source_id" text NOT NULL REFERENCES "livetv_epg_sources"("id") ON DELETE CASCADE,
 			"xmltv_channel_id" text NOT NULL,
@@ -1874,13 +1958,13 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"match_score" real,
 			"manual_override" integer DEFAULT 0
 		)`
-			)
-			.run();
+				)
+				.run();
 
-		// EPG Programs table
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "livetv_epg_programs" (
+			// EPG Programs table
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "livetv_epg_programs" (
 			"id" text PRIMARY KEY NOT NULL,
 			"source_id" text NOT NULL REFERENCES "livetv_epg_sources"("id") ON DELETE CASCADE,
 			"xmltv_channel_id" text NOT NULL,
@@ -1892,166 +1976,192 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 			"category" text,
 			"cached_at" text
 		)`
-			)
-			.run();
+				)
+				.run();
 
-		// Create indexes
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_sources_enabled" ON "livetv_epg_sources" ("enabled")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_sources_priority" ON "livetv_epg_sources" ("priority")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_source" ON "livetv_epg_channel_map" ("source_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_channel" ON "livetv_epg_channel_map" ("channel_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_xmltv" ON "livetv_epg_channel_map" ("source_id", "xmltv_channel_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_source" ON "livetv_epg_programs" ("source_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_channel" ON "livetv_epg_programs" ("channel_id")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_time" ON "livetv_epg_programs" ("start_time", "end_time")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_channel_time" ON "livetv_epg_programs" ("channel_id", "start_time")`
-			)
-			.run();
+			// Create indexes
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_sources_enabled" ON "livetv_epg_sources" ("enabled")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_sources_priority" ON "livetv_epg_sources" ("priority")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_source" ON "livetv_epg_channel_map" ("source_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_channel" ON "livetv_epg_channel_map" ("channel_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_xmltv" ON "livetv_epg_channel_map" ("source_id", "xmltv_channel_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_source" ON "livetv_epg_programs" ("source_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_channel" ON "livetv_epg_programs" ("channel_id")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_time" ON "livetv_epg_programs" ("start_time", "end_time")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_channel_time" ON "livetv_epg_programs" ("channel_id", "start_time")`
+				)
+				.run();
 
-		logger.info('[SchemaSync] Added Live TV EPG tables for XMLTV support');
+			logger.info('[SchemaSync] Added Live TV EPG tables for XMLTV support');
+		}
 	},
 
 	// Version 18: Add EPG performance optimization indexes
-	18: (sqlite) => {
-		// Index for LIKE search on channel names (case-insensitive)
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_name_search" ON "livetv_epg_channel_map" ("xmltv_channel_name" COLLATE NOCASE)`
-			)
-			.run();
-
-		// Covering index for getEpgNow query optimization
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_now" ON "livetv_epg_programs" ("channel_id", "end_time", "start_time")`
-			)
-			.run();
-
-		// Index for cleanup query optimization (end_time-based filtering)
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_end" ON "livetv_epg_programs" ("end_time")`
-			)
-			.run();
-
-		logger.info('[SchemaSync] Added EPG performance optimization indexes');
-	},
-
-	19: (sqlite) => {
-		// Composite index for EPG channel search (source_id + name)
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_source_name" ON "livetv_epg_channel_map" ("source_id", "xmltv_channel_name" COLLATE NOCASE)`
-			)
-			.run();
-
-		// Index for EPG program lookups by xmltv_channel_id (for preview feature)
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_xmltv" ON "livetv_epg_programs" ("source_id", "xmltv_channel_id", "start_time")`
-			)
-			.run();
-
-		logger.info('[SchemaSync] Added EPG search optimization indexes');
-	},
-
-	20: (sqlite) => {
-		// Add provider column to livetv_channels_cache for DaddyHD support
-		const cols = sqlite.prepare(`PRAGMA table_info(livetv_channels_cache)`).all() as {
-			name: string;
-		}[];
-		const hasProvider = cols.some((col) => col.name === 'provider');
-
-		if (!hasProvider) {
+	{
+		version: 18,
+		name: 'add_epg_performance_indexes',
+		apply: (sqlite) => {
+			// Index for LIKE search on channel names (case-insensitive)
 			sqlite
 				.prepare(
-					`ALTER TABLE "livetv_channels_cache" ADD COLUMN "provider" text DEFAULT 'cdnlive' CHECK ("provider" IN ('cdnlive', 'daddyhd'))`
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_name_search" ON "livetv_epg_channel_map" ("xmltv_channel_name" COLLATE NOCASE)`
 				)
 				.run();
+
+			// Covering index for getEpgNow query optimization
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_now" ON "livetv_epg_programs" ("channel_id", "end_time", "start_time")`
+				)
+				.run();
+
+			// Index for cleanup query optimization (end_time-based filtering)
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_end" ON "livetv_epg_programs" ("end_time")`
+				)
+				.run();
+
+			logger.info('[SchemaSync] Added EPG performance optimization indexes');
 		}
+	},
 
-		// Create provider index
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_livetv_cache_provider" ON "livetv_channels_cache" ("provider")`
-			)
-			.run();
+	// Version 19: Add EPG search optimization indexes
+	{
+		version: 19,
+		name: 'add_epg_search_indexes',
+		apply: (sqlite) => {
+			// Composite index for EPG channel search (source_id + name)
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_map_source_name" ON "livetv_epg_channel_map" ("source_id", "xmltv_channel_name" COLLATE NOCASE)`
+				)
+				.run();
 
-		logger.info('[SchemaSync] Added DaddyHD provider support to Live TV channels cache');
+			// Index for EPG program lookups by xmltv_channel_id (for preview feature)
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_epg_programs_xmltv" ON "livetv_epg_programs" ("source_id", "xmltv_channel_id", "start_time")`
+				)
+				.run();
+
+			logger.info('[SchemaSync] Added EPG search optimization indexes');
+		}
+	},
+
+	// Version 20: Add DaddyHD provider support
+	{
+		version: 20,
+		name: 'add_daddyhd_provider',
+		apply: (sqlite) => {
+			// Add provider column to livetv_channels_cache for DaddyHD support
+			const cols = sqlite.prepare(`PRAGMA table_info(livetv_channels_cache)`).all() as {
+				name: string;
+			}[];
+			const hasProvider = cols.some((col) => col.name === 'provider');
+
+			if (!hasProvider) {
+				sqlite
+					.prepare(
+						`ALTER TABLE "livetv_channels_cache" ADD COLUMN "provider" text DEFAULT 'cdnlive' CHECK ("provider" IN ('cdnlive', 'daddyhd'))`
+					)
+					.run();
+			}
+
+			// Create provider index
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_livetv_cache_provider" ON "livetv_channels_cache" ("provider")`
+				)
+				.run();
+
+			logger.info('[SchemaSync] Added DaddyHD provider support to Live TV channels cache');
+		}
 	},
 
 	// Version 21: Add cached_server column for DaddyHD server caching
-	21: (sqlite) => {
-		if (!columnExists(sqlite, 'livetv_channels_cache', 'cached_server')) {
-			sqlite.prepare(`ALTER TABLE "livetv_channels_cache" ADD COLUMN "cached_server" text`).run();
+	{
+		version: 21,
+		name: 'add_live_tv_cached_server',
+		apply: (sqlite) => {
+			if (!columnExists(sqlite, 'livetv_channels_cache', 'cached_server')) {
+				sqlite.prepare(`ALTER TABLE "livetv_channels_cache" ADD COLUMN "cached_server" text`).run();
+			}
+			logger.info('[SchemaSync] Added cached_server column to livetv_channels_cache');
 		}
-		logger.info('[SchemaSync] Added cached_server column to livetv_channels_cache');
 	},
 
 	// Version 22: Remove all Live TV tables (feature rewrite)
-	22: (sqlite) => {
-		const tables = [
-			'livetv_epg_programs',
-			'livetv_epg_channel_map',
-			'livetv_epg_sources',
-			'livetv_stream_health',
-			'livetv_settings',
-			'livetv_events_cache',
-			'livetv_lineup',
-			'livetv_categories',
-			'livetv_channels_cache'
-		];
+	{
+		version: 22,
+		name: 'remove_live_tv_v2',
+		apply: (sqlite) => {
+			const tables = [
+				'livetv_epg_programs',
+				'livetv_epg_channel_map',
+				'livetv_epg_sources',
+				'livetv_stream_health',
+				'livetv_settings',
+				'livetv_events_cache',
+				'livetv_lineup',
+				'livetv_categories',
+				'livetv_channels_cache'
+			];
 
-		for (const table of tables) {
-			if (tableExists(sqlite, table)) {
-				sqlite.prepare(`DROP TABLE IF EXISTS "${table}"`).run();
-				logger.info(`[SchemaSync] Dropped table: ${table}`);
+			for (const table of tables) {
+				if (tableExists(sqlite, table)) {
+					sqlite.prepare(`DROP TABLE IF EXISTS "${table}"`).run();
+					logger.info(`[SchemaSync] Dropped table: ${table}`);
+				}
 			}
-		}
 
-		logger.info('[SchemaSync] Removed all Live TV tables');
+			logger.info('[SchemaSync] Removed all Live TV tables');
+		}
 	},
 
 	// Version 23: Add stalker_accounts table for Live TV Stalker Portal support
-	23: (sqlite) => {
-		if (!tableExists(sqlite, 'stalker_accounts')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "stalker_accounts" (
+	{
+		version: 23,
+		name: 'add_stalker_accounts',
+		apply: (sqlite) => {
+			if (!tableExists(sqlite, 'stalker_accounts')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "stalker_accounts" (
 						"id" text PRIMARY KEY NOT NULL,
 						"name" text NOT NULL,
 						"portal_url" text NOT NULL,
@@ -2068,45 +2178,49 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			// Create indexes
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_stalker_accounts_enabled" ON "stalker_accounts" ("enabled")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_stalker_accounts_portal_mac" ON "stalker_accounts" ("portal_url", "mac_address")`
-				)
-				.run();
+				// Create indexes
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_stalker_accounts_enabled" ON "stalker_accounts" ("enabled")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_stalker_accounts_portal_mac" ON "stalker_accounts" ("portal_url", "mac_address")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added stalker_accounts table for Live TV');
+				logger.info('[SchemaSync] Added stalker_accounts table for Live TV');
+			}
 		}
 	},
 
 	// Version 24: Add stalker_categories and stalker_channels tables for channel caching
-	24: (sqlite) => {
-		// Add sync tracking columns to stalker_accounts
-		if (!columnExists(sqlite, 'stalker_accounts', 'last_sync_at')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_sync_at" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'last_sync_error')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_sync_error" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'sync_status')) {
-			sqlite
-				.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "sync_status" text DEFAULT 'never'`)
-				.run();
-		}
+	{
+		version: 24,
+		name: 'add_stalker_channel_caching',
+		apply: (sqlite) => {
+			// Add sync tracking columns to stalker_accounts
+			if (!columnExists(sqlite, 'stalker_accounts', 'last_sync_at')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_sync_at" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'last_sync_error')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_sync_error" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'sync_status')) {
+				sqlite
+					.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "sync_status" text DEFAULT 'never'`)
+					.run();
+			}
 
-		// Create stalker_categories table
-		if (!tableExists(sqlite, 'stalker_categories')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "stalker_categories" (
+			// Create stalker_categories table
+			if (!tableExists(sqlite, 'stalker_categories')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "stalker_categories" (
 						"id" text PRIMARY KEY NOT NULL,
 						"account_id" text NOT NULL REFERENCES "stalker_accounts"("id") ON DELETE CASCADE,
 						"stalker_id" text NOT NULL,
@@ -2117,28 +2231,28 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_stalker_categories_account" ON "stalker_categories" ("account_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_stalker_categories_unique" ON "stalker_categories" ("account_id", "stalker_id")`
-				)
-				.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_stalker_categories_account" ON "stalker_categories" ("account_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_stalker_categories_unique" ON "stalker_categories" ("account_id", "stalker_id")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added stalker_categories table');
-		}
+				logger.info('[SchemaSync] Added stalker_categories table');
+			}
 
-		// Create stalker_channels table
-		if (!tableExists(sqlite, 'stalker_channels')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "stalker_channels" (
+			// Create stalker_channels table
+			if (!tableExists(sqlite, 'stalker_channels')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "stalker_channels" (
 						"id" text PRIMARY KEY NOT NULL,
 						"account_id" text NOT NULL REFERENCES "stalker_accounts"("id") ON DELETE CASCADE,
 						"stalker_id" text NOT NULL,
@@ -2153,43 +2267,47 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_stalker_channels_account" ON "stalker_channels" ("account_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_stalker_channels_category" ON "stalker_channels" ("category_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_stalker_channels_name" ON "stalker_channels" ("name")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_stalker_channels_unique" ON "stalker_channels" ("account_id", "stalker_id")`
-				)
-				.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_stalker_channels_account" ON "stalker_channels" ("account_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_stalker_channels_category" ON "stalker_channels" ("category_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_stalker_channels_name" ON "stalker_channels" ("name")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_stalker_channels_unique" ON "stalker_channels" ("account_id", "stalker_id")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added stalker_channels table');
+				logger.info('[SchemaSync] Added stalker_channels table');
+			}
+
+			logger.info('[SchemaSync] Added channel caching tables for Live TV');
 		}
-
-		logger.info('[SchemaSync] Added channel caching tables for Live TV');
 	},
 
 	// Version 25: Add channel_categories and channel_lineup_items tables for user lineup management
-	25: (sqlite) => {
-		// Create channel_categories table
-		if (!tableExists(sqlite, 'channel_categories')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "channel_categories" (
+	{
+		version: 25,
+		name: 'add_channel_lineup_tables',
+		apply: (sqlite) => {
+			// Create channel_categories table
+			if (!tableExists(sqlite, 'channel_categories')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "channel_categories" (
 						"id" text PRIMARY KEY NOT NULL,
 						"name" text NOT NULL,
 						"position" integer NOT NULL,
@@ -2198,23 +2316,23 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_channel_categories_position" ON "channel_categories" ("position")`
-				)
-				.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_channel_categories_position" ON "channel_categories" ("position")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added channel_categories table');
-		}
+				logger.info('[SchemaSync] Added channel_categories table');
+			}
 
-		// Create channel_lineup_items table
-		if (!tableExists(sqlite, 'channel_lineup_items')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "channel_lineup_items" (
+			// Create channel_lineup_items table
+			if (!tableExists(sqlite, 'channel_lineup_items')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "channel_lineup_items" (
 						"id" text PRIMARY KEY NOT NULL,
 						"account_id" text NOT NULL REFERENCES "stalker_accounts"("id") ON DELETE CASCADE,
 						"channel_id" text NOT NULL REFERENCES "stalker_channels"("id") ON DELETE CASCADE,
@@ -2227,43 +2345,47 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"added_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_lineup_account_channel" ON "channel_lineup_items" ("account_id", "channel_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_lineup_position" ON "channel_lineup_items" ("position")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_lineup_account" ON "channel_lineup_items" ("account_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_lineup_category" ON "channel_lineup_items" ("category_id")`
-				)
-				.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_lineup_account_channel" ON "channel_lineup_items" ("account_id", "channel_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_lineup_position" ON "channel_lineup_items" ("position")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_lineup_account" ON "channel_lineup_items" ("account_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_lineup_category" ON "channel_lineup_items" ("category_id")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added channel_lineup_items table');
+				logger.info('[SchemaSync] Added channel_lineup_items table');
+			}
+
+			logger.info('[SchemaSync] Added user lineup management tables for Live TV');
 		}
-
-		logger.info('[SchemaSync] Added user lineup management tables for Live TV');
 	},
 
 	// Version 26: Add epg_programs table for storing EPG data from Stalker portals
-	26: (sqlite) => {
-		// Create epg_programs table
-		if (!tableExists(sqlite, 'epg_programs')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "epg_programs" (
+	{
+		version: 26,
+		name: 'add_epg_programs',
+		apply: (sqlite) => {
+			// Create epg_programs table
+			if (!tableExists(sqlite, 'epg_programs')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "epg_programs" (
 						"id" text PRIMARY KEY NOT NULL,
 						"channel_id" text NOT NULL REFERENCES "stalker_channels"("id") ON DELETE CASCADE,
 						"stalker_channel_id" text NOT NULL,
@@ -2280,46 +2402,52 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"cached_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_epg_programs_channel" ON "epg_programs" ("channel_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_epg_programs_channel_time" ON "epg_programs" ("channel_id", "start_time")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_epg_programs_account" ON "epg_programs" ("account_id")`
-				)
-				.run();
-			sqlite
-				.prepare(`CREATE INDEX IF NOT EXISTS "idx_epg_programs_end" ON "epg_programs" ("end_time")`)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_epg_programs_unique" ON "epg_programs" ("account_id", "stalker_channel_id", "start_time")`
-				)
-				.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_epg_programs_channel" ON "epg_programs" ("channel_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_epg_programs_channel_time" ON "epg_programs" ("channel_id", "start_time")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_epg_programs_account" ON "epg_programs" ("account_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_epg_programs_end" ON "epg_programs" ("end_time")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_epg_programs_unique" ON "epg_programs" ("account_id", "stalker_channel_id", "start_time")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added epg_programs table');
+				logger.info('[SchemaSync] Added epg_programs table');
+			}
+
+			logger.info('[SchemaSync] Added EPG support for Live TV');
 		}
-
-		logger.info('[SchemaSync] Added EPG support for Live TV');
 	},
 
 	// Version 27: Add channel_lineup_backups table for backup channel sources
-	27: (sqlite) => {
-		// Create channel_lineup_backups table
-		if (!tableExists(sqlite, 'channel_lineup_backups')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "channel_lineup_backups" (
+	{
+		version: 27,
+		name: 'add_channel_lineup_backups',
+		apply: (sqlite) => {
+			// Create channel_lineup_backups table
+			if (!tableExists(sqlite, 'channel_lineup_backups')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "channel_lineup_backups" (
 						"id" text PRIMARY KEY NOT NULL,
 						"lineup_item_id" text NOT NULL REFERENCES "channel_lineup_items"("id") ON DELETE CASCADE,
 						"account_id" text NOT NULL REFERENCES "stalker_accounts"("id") ON DELETE CASCADE,
@@ -2328,117 +2456,133 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
+					)
+					.run();
 
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_lineup_backups_item" ON "channel_lineup_backups" ("lineup_item_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_lineup_backups_priority" ON "channel_lineup_backups" ("lineup_item_id", "priority")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_lineup_backups_unique" ON "channel_lineup_backups" ("lineup_item_id", "channel_id")`
-				)
-				.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_lineup_backups_item" ON "channel_lineup_backups" ("lineup_item_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_lineup_backups_priority" ON "channel_lineup_backups" ("lineup_item_id", "priority")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_lineup_backups_unique" ON "channel_lineup_backups" ("lineup_item_id", "channel_id")`
+					)
+					.run();
 
-			logger.info('[SchemaSync] Added channel_lineup_backups table');
+				logger.info('[SchemaSync] Added channel_lineup_backups table');
+			}
+
+			logger.info('[SchemaSync] Added backup links support for Live TV');
 		}
-
-		logger.info('[SchemaSync] Added backup links support for Live TV');
 	},
 
 	// Version 28: Drop old live_tv_settings table (replaced by EPG scheduler settings)
-	28: (sqlite) => {
-		if (tableExists(sqlite, 'live_tv_settings')) {
-			sqlite.prepare(`DROP TABLE "live_tv_settings"`).run();
-			logger.info('[SchemaSync] Dropped old live_tv_settings table');
+	{
+		version: 28,
+		name: 'drop_old_live_tv_settings',
+		apply: (sqlite) => {
+			if (tableExists(sqlite, 'live_tv_settings')) {
+				sqlite.prepare(`DROP TABLE "live_tv_settings"`).run();
+				logger.info('[SchemaSync] Dropped old live_tv_settings table');
+			}
 		}
 	},
 
 	// Version 29: Clean break migration for Live TV
 	// This drops any orphaned tables from intermediate rewrites (v14-21 external API system).
 	// These tables are no longer used and may exist in databases that went through those versions.
-	29: (sqlite) => {
-		const orphanedTables = [
-			'livetv_channels_cache',
-			'livetv_categories',
-			'livetv_lineup',
-			'livetv_events_cache',
-			'livetv_settings',
-			'livetv_stream_health',
-			'livetv_epg_sources',
-			'livetv_epg_channel_map',
-			'livetv_epg_programs',
-			'livetv_epg_cache',
-			// Also clean up any remaining legacy tables
-			'stalker_portal_accounts',
-			'epg_sources',
-			'live_events'
-		];
+	{
+		version: 29,
+		name: 'clean_break_live_tv',
+		apply: (sqlite) => {
+			const orphanedTables = [
+				'livetv_channels_cache',
+				'livetv_categories',
+				'livetv_lineup',
+				'livetv_events_cache',
+				'livetv_settings',
+				'livetv_stream_health',
+				'livetv_epg_sources',
+				'livetv_epg_channel_map',
+				'livetv_epg_programs',
+				'livetv_epg_cache',
+				// Also clean up any remaining legacy tables
+				'stalker_portal_accounts',
+				'epg_sources',
+				'live_events'
+			];
 
-		let droppedCount = 0;
-		for (const table of orphanedTables) {
-			if (tableExists(sqlite, table)) {
-				sqlite.prepare(`DROP TABLE "${table}"`).run();
-				droppedCount++;
+			let droppedCount = 0;
+			for (const table of orphanedTables) {
+				if (tableExists(sqlite, table)) {
+					sqlite.prepare(`DROP TABLE "${table}"`).run();
+					droppedCount++;
+				}
 			}
-		}
 
-		if (droppedCount > 0) {
-			logger.info(`[SchemaSync] Dropped ${droppedCount} orphaned Live TV tables`);
+			if (droppedCount > 0) {
+				logger.info(`[SchemaSync] Dropped ${droppedCount} orphaned Live TV tables`);
+			}
 		}
 	},
 
 	// Version 30: Add device parameters to stalker_accounts for proper Stalker protocol support
-	30: (sqlite) => {
-		// Add device emulation parameters
-		if (!columnExists(sqlite, 'stalker_accounts', 'serial_number')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "serial_number" text`).run();
+	{
+		version: 30,
+		name: 'add_stalker_device_params',
+		apply: (sqlite) => {
+			// Add device emulation parameters
+			if (!columnExists(sqlite, 'stalker_accounts', 'serial_number')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "serial_number" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'device_id')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "device_id" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'device_id2')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "device_id2" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'model')) {
+				sqlite
+					.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "model" text DEFAULT 'MAG254'`)
+					.run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'timezone')) {
+				sqlite
+					.prepare(
+						`ALTER TABLE "stalker_accounts" ADD COLUMN "timezone" text DEFAULT 'Europe/London'`
+					)
+					.run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'token')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "token" text`).run();
+			}
+			// Add optional credentials
+			if (!columnExists(sqlite, 'stalker_accounts', 'username')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "username" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'password')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "password" text`).run();
+			}
+			logger.info('[SchemaSync] Added device parameters to stalker_accounts for Stalker protocol');
 		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'device_id')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "device_id" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'device_id2')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "device_id2" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'model')) {
-			sqlite
-				.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "model" text DEFAULT 'MAG254'`)
-				.run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'timezone')) {
-			sqlite
-				.prepare(
-					`ALTER TABLE "stalker_accounts" ADD COLUMN "timezone" text DEFAULT 'Europe/London'`
-				)
-				.run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'token')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "token" text`).run();
-		}
-		// Add optional credentials
-		if (!columnExists(sqlite, 'stalker_accounts', 'username')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "username" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'password')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "password" text`).run();
-		}
-		logger.info('[SchemaSync] Added device parameters to stalker_accounts for Stalker protocol');
 	},
 
 	// Version 31: Add portal scanner tables (stalker_portals, portal_scan_results, portal_scan_history)
-	31: (sqlite) => {
-		// Create stalker_portals table if it doesn't exist
-		if (!tableExists(sqlite, 'stalker_portals')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "stalker_portals" (
+	{
+		version: 31,
+		name: 'add_portal_scanner_tables',
+		apply: (sqlite) => {
+			// Create stalker_portals table if it doesn't exist
+			if (!tableExists(sqlite, 'stalker_portals')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "stalker_portals" (
 						"id" text PRIMARY KEY NOT NULL,
 						"name" text NOT NULL,
 						"url" text NOT NULL UNIQUE,
@@ -2450,37 +2594,37 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"created_at" text,
 						"updated_at" text
 					)`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_stalker_portals_enabled" ON "stalker_portals" ("enabled")`
-				)
-				.run();
-			logger.info('[SchemaSync] Created stalker_portals table');
-		}
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_stalker_portals_enabled" ON "stalker_portals" ("enabled")`
+					)
+					.run();
+				logger.info('[SchemaSync] Created stalker_portals table');
+			}
 
-		// Add portal_id and discovered_from_scan columns to stalker_accounts
-		if (!columnExists(sqlite, 'stalker_accounts', 'portal_id')) {
-			sqlite
-				.prepare(
-					`ALTER TABLE "stalker_accounts" ADD COLUMN "portal_id" text REFERENCES "stalker_portals"("id") ON DELETE SET NULL`
-				)
-				.run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'discovered_from_scan')) {
-			sqlite
-				.prepare(
-					`ALTER TABLE "stalker_accounts" ADD COLUMN "discovered_from_scan" integer DEFAULT 0`
-				)
-				.run();
-		}
+			// Add portal_id and discovered_from_scan columns to stalker_accounts
+			if (!columnExists(sqlite, 'stalker_accounts', 'portal_id')) {
+				sqlite
+					.prepare(
+						`ALTER TABLE "stalker_accounts" ADD COLUMN "portal_id" text REFERENCES "stalker_portals"("id") ON DELETE SET NULL`
+					)
+					.run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'discovered_from_scan')) {
+				sqlite
+					.prepare(
+						`ALTER TABLE "stalker_accounts" ADD COLUMN "discovered_from_scan" integer DEFAULT 0`
+					)
+					.run();
+			}
 
-		// Create portal_scan_results table if it doesn't exist
-		if (!tableExists(sqlite, 'portal_scan_results')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "portal_scan_results" (
+			// Create portal_scan_results table if it doesn't exist
+			if (!tableExists(sqlite, 'portal_scan_results')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "portal_scan_results" (
 						"id" text PRIMARY KEY NOT NULL,
 						"portal_id" text NOT NULL REFERENCES "stalker_portals"("id") ON DELETE CASCADE,
 						"mac_address" text NOT NULL,
@@ -2495,26 +2639,26 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"discovered_at" text NOT NULL,
 						"processed_at" text
 					)`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_scan_results_portal_mac" ON "portal_scan_results" ("portal_id", "mac_address")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_scan_results_portal_status" ON "portal_scan_results" ("portal_id", "status")`
-				)
-				.run();
-			logger.info('[SchemaSync] Created portal_scan_results table');
-		}
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE UNIQUE INDEX IF NOT EXISTS "idx_scan_results_portal_mac" ON "portal_scan_results" ("portal_id", "mac_address")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_scan_results_portal_status" ON "portal_scan_results" ("portal_id", "status")`
+					)
+					.run();
+				logger.info('[SchemaSync] Created portal_scan_results table');
+			}
 
-		// Create portal_scan_history table if it doesn't exist
-		if (!tableExists(sqlite, 'portal_scan_history')) {
-			sqlite
-				.prepare(
-					`CREATE TABLE IF NOT EXISTS "portal_scan_history" (
+			// Create portal_scan_history table if it doesn't exist
+			if (!tableExists(sqlite, 'portal_scan_history')) {
+				sqlite
+					.prepare(
+						`CREATE TABLE IF NOT EXISTS "portal_scan_history" (
 						"id" text PRIMARY KEY NOT NULL,
 						"portal_id" text NOT NULL REFERENCES "stalker_portals"("id") ON DELETE CASCADE,
 						"worker_id" text,
@@ -2530,78 +2674,102 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 						"started_at" text NOT NULL,
 						"completed_at" text
 					)`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_scan_history_portal" ON "portal_scan_history" ("portal_id")`
-				)
-				.run();
-			sqlite
-				.prepare(
-					`CREATE INDEX IF NOT EXISTS "idx_scan_history_status" ON "portal_scan_history" ("status")`
-				)
-				.run();
-			logger.info('[SchemaSync] Created portal_scan_history table');
-		}
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_scan_history_portal" ON "portal_scan_history" ("portal_id")`
+					)
+					.run();
+				sqlite
+					.prepare(
+						`CREATE INDEX IF NOT EXISTS "idx_scan_history_status" ON "portal_scan_history" ("status")`
+					)
+					.run();
+				logger.info('[SchemaSync] Created portal_scan_history table');
+			}
 
-		logger.info('[SchemaSync] Added portal scanner tables');
+			logger.info('[SchemaSync] Added portal scanner tables');
+		}
 	},
 
 	// Version 32: Add EPG tracking columns to stalker_accounts for visibility and sync status
-	32: (sqlite) => {
-		// Add EPG tracking columns to stalker_accounts
-		if (!columnExists(sqlite, 'stalker_accounts', 'last_epg_sync_at')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_epg_sync_at" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'last_epg_sync_error')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_epg_sync_error" text`).run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'epg_program_count')) {
-			sqlite
-				.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "epg_program_count" integer DEFAULT 0`)
-				.run();
-		}
-		if (!columnExists(sqlite, 'stalker_accounts', 'has_epg')) {
-			sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "has_epg" integer`).run();
-		}
+	{
+		version: 32,
+		name: 'add_stalker_epg_tracking',
+		apply: (sqlite) => {
+			// Add EPG tracking columns to stalker_accounts
+			if (!columnExists(sqlite, 'stalker_accounts', 'last_epg_sync_at')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_epg_sync_at" text`).run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'last_epg_sync_error')) {
+				sqlite
+					.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "last_epg_sync_error" text`)
+					.run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'epg_program_count')) {
+				sqlite
+					.prepare(
+						`ALTER TABLE "stalker_accounts" ADD COLUMN "epg_program_count" integer DEFAULT 0`
+					)
+					.run();
+			}
+			if (!columnExists(sqlite, 'stalker_accounts', 'has_epg')) {
+				sqlite.prepare(`ALTER TABLE "stalker_accounts" ADD COLUMN "has_epg" integer`).run();
+			}
 
-		logger.info('[SchemaSync] Added EPG tracking columns to stalker_accounts');
+			logger.info('[SchemaSync] Added EPG tracking columns to stalker_accounts');
+		}
 	},
 
 	// Version 33: Add EPG source override column to channel_lineup_items
-	33: (sqlite) => {
-		if (!columnExists(sqlite, 'channel_lineup_items', 'epg_source_channel_id')) {
-			sqlite
-				.prepare(
-					`ALTER TABLE "channel_lineup_items" ADD COLUMN "epg_source_channel_id" text REFERENCES "stalker_channels"("id") ON DELETE SET NULL`
-				)
-				.run();
-			logger.info('[SchemaSync] Added epg_source_channel_id column to channel_lineup_items');
+	{
+		version: 33,
+		name: 'add_epg_source_override',
+		apply: (sqlite) => {
+			if (!columnExists(sqlite, 'channel_lineup_items', 'epg_source_channel_id')) {
+				sqlite
+					.prepare(
+						`ALTER TABLE "channel_lineup_items" ADD COLUMN "epg_source_channel_id" text REFERENCES "stalker_channels"("id") ON DELETE SET NULL`
+					)
+					.run();
+				logger.info('[SchemaSync] Added epg_source_channel_id column to channel_lineup_items');
+			}
 		}
 	},
 
 	// Version 34: Add url_base column to download_clients
-	34: (sqlite) => {
-		if (!columnExists(sqlite, 'download_clients', 'url_base')) {
-			sqlite.prepare(`ALTER TABLE "download_clients" ADD COLUMN "url_base" text`).run();
-			logger.info('[SchemaSync] Added url_base column to download_clients');
+	{
+		version: 34,
+		name: 'add_download_client_url_base',
+		apply: (sqlite) => {
+			if (!columnExists(sqlite, 'download_clients', 'url_base')) {
+				sqlite.prepare(`ALTER TABLE "download_clients" ADD COLUMN "url_base" text`).run();
+				logger.info('[SchemaSync] Added url_base column to download_clients');
+			}
 		}
 	},
 
 	// Version 35: Add mount_mode column to download_clients
-	35: (sqlite) => {
-		if (!columnExists(sqlite, 'download_clients', 'mount_mode')) {
-			sqlite.prepare(`ALTER TABLE "download_clients" ADD COLUMN "mount_mode" text`).run();
-			logger.info('[SchemaSync] Added mount_mode column to download_clients');
+	{
+		version: 35,
+		name: 'add_download_client_mount_mode',
+		apply: (sqlite) => {
+			if (!columnExists(sqlite, 'download_clients', 'mount_mode')) {
+				sqlite.prepare(`ALTER TABLE "download_clients" ADD COLUMN "mount_mode" text`).run();
+				logger.info('[SchemaSync] Added mount_mode column to download_clients');
+			}
 		}
 	},
 
 	// Version 36: Add nzb_segment_cache table for persistent prefetched segments
-	36: (sqlite) => {
-		sqlite
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS "nzb_segment_cache" (
+	{
+		version: 36,
+		name: 'add_nzb_segment_cache',
+		apply: (sqlite) => {
+			sqlite
+				.prepare(
+					`CREATE TABLE IF NOT EXISTS "nzb_segment_cache" (
 				"id" text PRIMARY KEY NOT NULL,
 				"mount_id" text NOT NULL REFERENCES "nzb_stream_mounts"("id") ON DELETE CASCADE,
 				"file_index" integer NOT NULL,
@@ -2610,24 +2778,27 @@ const SCHEMA_UPDATES: Record<number, (sqlite: Database.Database) => void> = {
 				"size" integer NOT NULL,
 				"created_at" text
 			)`
-			)
-			.run();
+				)
+				.run();
 
-		// Create indexes
-		sqlite
-			.prepare(
-				`CREATE UNIQUE INDEX IF NOT EXISTS "idx_segment_cache_lookup" ON "nzb_segment_cache" ("mount_id", "file_index", "segment_index")`
-			)
-			.run();
-		sqlite
-			.prepare(
-				`CREATE INDEX IF NOT EXISTS "idx_segment_cache_mount" ON "nzb_segment_cache" ("mount_id")`
-			)
-			.run();
+			// Create indexes
+			sqlite
+				.prepare(
+					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_segment_cache_lookup" ON "nzb_segment_cache" ("mount_id", "file_index", "segment_index")`
+				)
+				.run();
+			sqlite
+				.prepare(
+					`CREATE INDEX IF NOT EXISTS "idx_segment_cache_mount" ON "nzb_segment_cache" ("mount_id")`
+				)
+				.run();
 
-		logger.info('[SchemaSync] Created nzb_segment_cache table for persistent prefetched segments');
+			logger.info(
+				'[SchemaSync] Created nzb_segment_cache table for persistent prefetched segments'
+			);
+		}
 	}
-};
+];
 
 /**
  * Get current schema version from database
@@ -2765,40 +2936,226 @@ function cleanupLiveTvTables(sqlite: Database.Database): void {
 }
 
 /**
- * Synchronize database schema
- * - Creates missing tables
- * - Runs version-based updates
- * - Sets schema version
+ * Critical columns that must exist for the app to function.
+ * Used to verify schema integrity after migrations.
+ */
+const CRITICAL_COLUMNS: Record<string, string[]> = {
+	download_clients: ['id', 'name', 'implementation', 'host', 'port', 'url_base', 'mount_mode'],
+	root_folders: ['id', 'path', 'read_only', 'preserve_symlinks'],
+	movies: ['id', 'tmdb_id', 'title', 'path', 'monitored'],
+	series: ['id', 'tmdb_id', 'title', 'path', 'monitored'],
+	episodes: ['id', 'series_id', 'season_number', 'episode_number'],
+	indexers: ['id', 'name', 'definition_id', 'enabled'],
+	scoring_profiles: ['id', 'name', 'is_default']
+};
+
+/**
+ * Compute a checksum for a migration (used for tracking changes)
+ */
+function computeMigrationChecksum(migration: MigrationDefinition): string {
+	const content = `${migration.version}:${migration.name}:${migration.apply.toString()}`;
+	return createHash('sha256').update(content).digest('hex').substring(0, 16);
+}
+
+/**
+ * Get all applied migrations from the schema_migrations table
+ */
+function getAppliedMigrations(
+	sqlite: Database.Database
+): Map<number, { checksum: string; success: number }> {
+	const applied = new Map<number, { checksum: string; success: number }>();
+	if (!tableExists(sqlite, 'schema_migrations')) return applied;
+
+	const rows = sqlite
+		.prepare(`SELECT version, checksum, success FROM schema_migrations`)
+		.all() as Array<{ version: number; checksum: string; success: number }>;
+	for (const row of rows) {
+		applied.set(row.version, { checksum: row.checksum, success: row.success });
+	}
+	return applied;
+}
+
+/**
+ * Backfill migration records for existing databases that were using the legacy schema_version system.
+ * This ensures backward compatibility when upgrading from the old single-version tracking.
+ */
+function backfillMigrationRecords(sqlite: Database.Database): void {
+	const legacyVersion = getSchemaVersion(sqlite);
+	if (legacyVersion === 0) return;
+
+	// Check if we already have migration records
+	const existingRecords = sqlite
+		.prepare(`SELECT COUNT(*) as count FROM schema_migrations`)
+		.get() as { count: number };
+	if (existingRecords.count > 0) return;
+
+	logger.info('[SchemaSync] Backfilling migration records for legacy database', { legacyVersion });
+
+	const now = new Date().toISOString();
+	const stmt = sqlite.prepare(`
+		INSERT OR IGNORE INTO schema_migrations (version, name, checksum, applied_at, execution_time_ms, success)
+		VALUES (?, ?, ?, ?, 0, 1)
+	`);
+
+	for (const migration of MIGRATIONS) {
+		if (migration.version <= legacyVersion) {
+			stmt.run(migration.version, migration.name, computeMigrationChecksum(migration), now);
+		}
+	}
+}
+
+/**
+ * Map of migration versions to the columns they should create.
+ * Used for drift detection - if a migration is marked as applied but the column doesn't exist,
+ * we mark it as failed so it re-runs.
+ */
+const MIGRATION_COLUMN_MAP: Record<number, Array<{ table: string; column: string }>> = {
+	3: [{ table: 'root_folders', column: 'read_only' }],
+	5: [{ table: 'root_folders', column: 'preserve_symlinks' }],
+	11: [
+		{ table: 'download_clients', column: 'temp_path_local' },
+		{ table: 'download_clients', column: 'temp_path_remote' }
+	],
+	34: [{ table: 'download_clients', column: 'url_base' }],
+	35: [{ table: 'download_clients', column: 'mount_mode' }]
+};
+
+/**
+ * Detect schema drift and mark affected migrations for re-run.
+ * This handles the case where schema_version says X but columns from migration X are missing.
+ */
+function detectAndFixSchemaDrift(sqlite: Database.Database): void {
+	let driftFound = false;
+
+	for (const [versionStr, columns] of Object.entries(MIGRATION_COLUMN_MAP)) {
+		const version = parseInt(versionStr, 10);
+
+		for (const { table, column } of columns) {
+			if (tableExists(sqlite, table) && !columnExists(sqlite, table, column)) {
+				// Column should exist but doesn't - mark migration as failed so it re-runs
+				logger.warn(
+					`[SchemaSync] Schema drift detected: ${table}.${column} missing (migration v${version})`
+				);
+				sqlite.prepare(`UPDATE schema_migrations SET success = 0 WHERE version = ?`).run(version);
+				driftFound = true;
+			}
+		}
+	}
+
+	if (driftFound) {
+		logger.info('[SchemaSync] Schema drift detected and migrations marked for re-run');
+	}
+}
+
+/**
+ * Verify schema integrity by checking that critical columns exist.
+ * Throws an error if any critical columns are missing.
+ */
+function verifySchemaIntegrity(sqlite: Database.Database): void {
+	const issues: string[] = [];
+
+	for (const [table, columns] of Object.entries(CRITICAL_COLUMNS)) {
+		if (!tableExists(sqlite, table)) {
+			// Some tables may not exist yet (e.g., if no movies added)
+			// Only flag as issue if other parts of the table exist
+			continue;
+		}
+
+		for (const column of columns) {
+			if (!columnExists(sqlite, table, column)) {
+				issues.push(`Missing column: ${table}.${column}`);
+			}
+		}
+	}
+
+	if (issues.length > 0) {
+		logger.error('[SchemaSync] Schema integrity check failed', { issues });
+		throw new Error(`Schema integrity check failed: ${issues.join(', ')}`);
+	}
+}
+
+/**
+ * Apply a single migration with transaction wrapping and tracking
+ */
+function applyMigration(sqlite: Database.Database, migration: MigrationDefinition): void {
+	const checksum = computeMigrationChecksum(migration);
+	const startTime = Date.now();
+
+	logger.info(`[SchemaSync] Applying migration v${migration.version}: ${migration.name}`);
+
+	// Mark as in-progress (success=0)
+	sqlite
+		.prepare(
+			`
+		INSERT OR REPLACE INTO schema_migrations (version, name, checksum, applied_at, success)
+		VALUES (?, ?, ?, ?, 0)
+	`
+		)
+		.run(migration.version, migration.name, checksum, new Date().toISOString());
+
+	try {
+		// Run migration in a transaction
+		sqlite.transaction(() => {
+			migration.apply(sqlite);
+		})();
+
+		const executionTime = Date.now() - startTime;
+
+		// Mark as successful
+		sqlite
+			.prepare(`UPDATE schema_migrations SET success = 1, execution_time_ms = ? WHERE version = ?`)
+			.run(executionTime, migration.version);
+
+		logger.info(`[SchemaSync] Migration v${migration.version} completed in ${executionTime}ms`);
+	} catch (error) {
+		logger.error(`[SchemaSync] Migration v${migration.version} failed`, {
+			error: error instanceof Error ? error.message : String(error)
+		});
+		throw error;
+	}
+}
+
+/**
+ * Synchronize database schema using per-migration tracking.
+ *
+ * This approach provides:
+ * - Individual tracking of each migration
+ * - Automatic retry of failed migrations on restart
+ * - Backward compatibility with legacy schema_version
+ * - Schema integrity verification
  */
 export function syncSchema(sqlite: Database.Database): void {
-	const currentVersion = getSchemaVersion(sqlite);
+	logger.info('[SchemaSync] Starting schema synchronization');
 
-	logger.info('[SchemaSync] Starting schema synchronization', {
-		currentVersion,
-		targetVersion: CURRENT_SCHEMA_VERSION
-	});
+	// 1. Create the schema_migrations table first (if not exists)
+	sqlite
+		.prepare(
+			`
+		CREATE TABLE IF NOT EXISTS "schema_migrations" (
+			"version" integer PRIMARY KEY NOT NULL,
+			"name" text NOT NULL,
+			"checksum" text NOT NULL,
+			"applied_at" text NOT NULL,
+			"execution_time_ms" integer,
+			"success" integer DEFAULT 1
+		)
+	`
+		)
+		.run();
 
-	// Check if this is an existing database from the migration era
-	const hasDrizzleMigrations = tableExists(sqlite, '__drizzle_migrations');
-	const _hasSettingsTable = tableExists(sqlite, 'settings');
+	// 2. Backfill records for legacy databases
+	backfillMigrationRecords(sqlite);
 
-	if (hasDrizzleMigrations && currentVersion === 0) {
-		// This is an existing database that was using migrations
-		// All tables should exist, just need to set version
-		logger.info('[SchemaSync] Detected existing database from migration era');
-	}
+	// 2.5. Detect and fix schema drift (columns missing despite version saying they should exist)
+	detectAndFixSchemaDrift(sqlite);
 
-	// Check for legacy Live TV schema that needs cleanup before we can proceed.
-	// This handles databases from the old GitHub version (v11-16) that have
-	// incompatible table structures. We must clean these up BEFORE creating
-	// new tables, as IF NOT EXISTS would leave old structures in place.
+	// 3. Legacy Live TV cleanup
 	if (hasLegacyLiveTvSchema(sqlite)) {
-		logger.info('[SchemaSync] Detected legacy Live TV schema - cleaning up for migration');
+		logger.info('[SchemaSync] Cleaning up legacy Live TV schema');
 		cleanupLiveTvTables(sqlite);
-		logger.info('[SchemaSync] Legacy Live TV cleanup complete - fresh tables will be created');
 	}
 
-	// Create all tables (IF NOT EXISTS makes this safe)
+	// 4. Create all tables (IF NOT EXISTS)
 	logger.info('[SchemaSync] Ensuring all tables exist...');
 	for (const tableDef of TABLE_DEFINITIONS) {
 		try {
@@ -2812,47 +3169,43 @@ export function syncSchema(sqlite: Database.Database): void {
 		}
 	}
 
-	// Create all indexes
+	// 5. Create all indexes
 	logger.info('[SchemaSync] Creating indexes...');
 	for (const indexDef of INDEX_DEFINITIONS) {
 		try {
 			sqlite.prepare(indexDef).run();
 		} catch (error) {
-			// Index errors are usually not fatal (might already exist differently)
 			logger.warn('[SchemaSync] Index creation warning', {
 				error: error instanceof Error ? error.message : String(error)
 			});
 		}
 	}
 
-	// Run incremental updates if needed
-	if (currentVersion < CURRENT_SCHEMA_VERSION) {
-		logger.info('[SchemaSync] Running schema updates...', {
-			from: currentVersion,
-			to: CURRENT_SCHEMA_VERSION
+	// 6. Get applied migrations and find pending ones
+	const applied = getAppliedMigrations(sqlite);
+	const pending = MIGRATIONS.filter((m) => {
+		const record = applied.get(m.version);
+		// Run if not applied OR if previously failed (success=0)
+		return !record || record.success === 0;
+	});
+
+	// 7. Apply pending migrations
+	if (pending.length > 0) {
+		logger.info('[SchemaSync] Applying migrations', {
+			count: pending.length,
+			versions: pending.map((m) => m.version)
 		});
 
-		for (let v = currentVersion + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
-			const update = SCHEMA_UPDATES[v];
-			if (update) {
-				logger.info(`[SchemaSync] Applying update to version ${v}`);
-				try {
-					update(sqlite);
-				} catch (error) {
-					logger.error(`[SchemaSync] Failed to apply update ${v}`, {
-						error: error instanceof Error ? error.message : String(error)
-					});
-					throw error;
-				}
-			}
+		for (const migration of pending) {
+			applyMigration(sqlite, migration);
 		}
 	}
 
-	// Set the schema version
-	setSchemaVersion(sqlite, CURRENT_SCHEMA_VERSION);
+	// 8. Verify schema integrity
+	verifySchemaIntegrity(sqlite);
 
-	// Clean up old drizzle migrations table if it exists (optional)
-	// We keep it for now as it doesn't hurt anything
+	// 9. Update legacy schema_version for backward compatibility
+	setSchemaVersion(sqlite, CURRENT_SCHEMA_VERSION);
 
 	logger.info('[SchemaSync] Schema synchronization complete', {
 		version: CURRENT_SCHEMA_VERSION
