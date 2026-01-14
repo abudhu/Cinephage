@@ -13,10 +13,15 @@
 		Calendar,
 		Activity,
 		TrendingUp,
-		PlayCircle
+		PlayCircle,
+		ArrowRight,
+		Loader2,
+		Minus
 	} from 'lucide-svelte';
 	import TmdbImage from '$lib/components/tmdb/TmdbImage.svelte';
 	import { resolve } from '$app/paths';
+	import { resolvePath } from '$lib/utils/routing';
+	import type { UnifiedActivity } from '$lib/types/activity';
 
 	let { data } = $props();
 
@@ -43,79 +48,26 @@
 		return new Date(dateStr).toLocaleDateString();
 	}
 
-	// Get status icon and color for download history
-	function getDownloadStatusStyle(status: string) {
-		switch (status) {
-			case 'imported':
-				return { icon: CheckCircle, class: 'text-success' };
-			case 'failed':
-				return { icon: XCircle, class: 'text-error' };
-			case 'removed':
-				return { icon: XCircle, class: 'text-warning' };
-			default:
-				return { icon: Clock, class: 'text-info' };
+	// Status config for activity
+	const statusConfig: Record<string, { label: string; variant: string; icon: typeof CheckCircle }> =
+		{
+			imported: { label: 'Imported', variant: 'badge-success', icon: CheckCircle },
+			streaming: { label: 'Streaming', variant: 'badge-info', icon: CheckCircle },
+			downloading: { label: 'Downloading', variant: 'badge-info', icon: Loader2 },
+			failed: { label: 'Failed', variant: 'badge-error', icon: XCircle },
+			rejected: { label: 'Rejected', variant: 'badge-warning', icon: AlertCircle },
+			removed: { label: 'Removed', variant: 'badge-ghost', icon: XCircle },
+			no_results: { label: 'No Results', variant: 'badge-ghost', icon: Minus },
+			searching: { label: 'Searching', variant: 'badge-info', icon: Loader2 }
+		};
+
+	// Get media link
+	function getMediaLink(activity: UnifiedActivity): string {
+		if (activity.mediaType === 'movie') {
+			return resolvePath(`/movies/${activity.mediaId}`);
 		}
+		return resolvePath(`/tv/${activity.seriesId || activity.mediaId}`);
 	}
-
-	// Get status icon and color for monitoring history
-	function getMonitoringStatusStyle(status: string) {
-		switch (status) {
-			case 'grabbed':
-				return { icon: CheckCircle, class: 'text-success' };
-			case 'found':
-				return { icon: Search, class: 'text-info' };
-			case 'no_results':
-				return { icon: AlertCircle, class: 'text-warning' };
-			case 'error':
-				return { icon: XCircle, class: 'text-error' };
-			default:
-				return { icon: Clock, class: 'text-base-content' };
-		}
-	}
-
-	// Get task type display name
-	function getTaskTypeName(taskType: string): string {
-		switch (taskType) {
-			case 'missing':
-				return 'Missing Search';
-			case 'upgrade':
-				return 'Upgrade Search';
-			case 'new_episode':
-				return 'New Episode';
-			case 'cutoff_unmet':
-				return 'Cutoff Unmet';
-			default:
-				return taskType;
-		}
-	}
-
-	// Combine and sort recent activity
-	const recentActivity = $derived(() => {
-		const downloads = data.recentActivity.downloads.map((d) => ({
-			type: 'download' as const,
-			id: d.id,
-			title: d.title,
-			status: d.status,
-			quality: d.quality,
-			timestamp: d.createdAt,
-			mediaType: d.movieId ? 'movie' : 'tv'
-		}));
-
-		const monitoring = data.recentActivity.monitoring.map((m) => ({
-			type: 'monitoring' as const,
-			id: m.id,
-			title: m.releaseGrabbed || `${getTaskTypeName(m.taskType)}`,
-			status: m.status,
-			taskType: m.taskType,
-			releasesFound: m.releasesFound,
-			timestamp: m.executedAt,
-			mediaType: m.movieId ? 'movie' : 'tv'
-		}));
-
-		return [...downloads, ...monitoring]
-			.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
-			.slice(0, 12);
-	});
 </script>
 
 <div class="space-y-6">
@@ -411,41 +363,89 @@
 		<!-- Recent Activity Sidebar (1/3 width) -->
 		<div class="card bg-base-200">
 			<div class="card-body">
-				<h2 class="card-title">
-					<Activity class="h-5 w-5" />
-					Recent Activity
-				</h2>
-				{#if recentActivity().length > 0}
-					<div class="divide-y divide-base-300">
-						{#each recentActivity() as activity (activity.id)}
-							<div class="py-2">
-								<div class="flex items-start gap-2">
-									{#if activity.type === 'download'}
-										{@const style = getDownloadStatusStyle(activity.status)}
-										{@const Icon = style.icon}
-										<Icon class="mt-0.5 h-4 w-4 flex-shrink-0 {style.class}" />
-									{:else}
-										{@const style = getMonitoringStatusStyle(activity.status)}
-										{@const Icon = style.icon}
-										<Icon class="mt-0.5 h-4 w-4 flex-shrink-0 {style.class}" />
-									{/if}
-									<div class="min-w-0 flex-1">
-										<p class="truncate text-sm font-medium">{activity.title}</p>
-										<div class="flex items-center gap-2 text-xs text-base-content/50">
-											{#if activity.type === 'download'}
-												<span class="badge badge-ghost badge-xs">{activity.status}</span>
-											{:else if activity.type === 'monitoring'}
-												<span class="badge badge-ghost badge-xs">{activity.taskType}</span>
-												{#if activity.releasesFound}
-													<span>{activity.releasesFound} found</span>
+				<div class="flex items-center justify-between">
+					<h2 class="card-title">
+						<Activity class="h-5 w-5" />
+						Recent Activity
+					</h2>
+					<a href={resolvePath('/activity')} class="btn gap-1 btn-ghost btn-xs">
+						View all
+						<ArrowRight class="h-3 w-3" />
+					</a>
+				</div>
+				{#if data.recentActivity.length > 0}
+					<div class="-mx-4 overflow-x-auto">
+						<table class="table table-xs">
+							<thead>
+								<tr>
+									<th>Status</th>
+									<th>Media</th>
+									<th>Progress</th>
+									<th>Time</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each data.recentActivity as activity (activity.id)}
+									{@const config = statusConfig[activity.status] || statusConfig.no_results}
+									{@const StatusIcon = config.icon}
+									<tr class="hover">
+										<td>
+											<span class="badge gap-1 {config.variant} badge-xs">
+												<StatusIcon
+													class="h-3 w-3 {activity.status === 'downloading' ||
+													activity.status === 'searching'
+														? 'animate-spin'
+														: ''}"
+												/>
+												{#if activity.status === 'downloading' && activity.downloadProgress !== undefined}
+													{activity.downloadProgress}%
+												{:else}
+													{config.label}
 												{/if}
+											</span>
+										</td>
+										<td>
+											<a
+												href={getMediaLink(activity)}
+												class="flex items-center gap-1 hover:text-primary"
+											>
+												{#if activity.mediaType === 'movie'}
+													<Clapperboard class="h-3 w-3 shrink-0" />
+												{:else}
+													<Tv class="h-3 w-3 shrink-0" />
+												{/if}
+												<span class="max-w-24 truncate text-xs" title={activity.mediaTitle}>
+													{activity.mediaTitle}
+												</span>
+											</a>
+										</td>
+										<td>
+											{#if activity.status === 'downloading' && activity.downloadProgress !== undefined}
+												<progress
+													class="progress w-12 progress-info"
+													value={activity.downloadProgress}
+													max="100"
+												></progress>
+											{:else if activity.statusReason}
+												<span
+													class="max-w-16 truncate text-xs text-base-content/50"
+													title={activity.statusReason}
+												>
+													{activity.statusReason}
+												</span>
+											{:else}
+												<span class="text-xs text-base-content/50">{config.label}</span>
 											{/if}
-											<span>{formatRelativeTime(activity.timestamp)}</span>
-										</div>
-									</div>
-								</div>
-							</div>
-						{/each}
+										</td>
+										<td>
+											<span class="text-xs text-base-content/50">
+												{formatRelativeTime(activity.startedAt)}
+											</span>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
 					</div>
 				{:else}
 					<div class="py-8 text-center text-base-content/50">

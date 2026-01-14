@@ -7,6 +7,8 @@ import { ReleaseParser } from '$lib/server/indexers/parser/ReleaseParser';
 import { logger } from '$lib/logging';
 import type { GrabRequest, GrabResponse } from '$lib/types/queue';
 import { getDownloadResolutionService, releaseDecisionService } from '$lib/server/downloads';
+import { checkNzbAvailability } from '$lib/server/downloads/nzb/index.js';
+import { blocklistService } from '$lib/server/monitoring/specifications/BlocklistSpecification.js';
 import type { DownloadInfo } from '$lib/server/downloadClients/core/interfaces';
 import { categoryMatchesSearchType, getCategoryContentType } from '$lib/server/indexers/types';
 import { strmService, StrmService, getStreamingBaseUrl } from '$lib/server/streaming';
@@ -319,9 +321,86 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		if (protocol === 'usenet') {
-			// Usenet doesn't need resolution - the NZB URL is passed directly to the client
+			// Usenet: fetch NZB and run NNTP pre-flight check before sending to client
 			resolved = { success: true };
-			logger.debug('Skipping resolution for Usenet download', { title: data.title });
+
+			// Fetch NZB content for availability check
+			if (reconstructedDownloadUrl) {
+				try {
+					logger.info('[Grab] Fetching NZB for pre-flight check', { title: data.title });
+					const nzbResponse = await fetch(reconstructedDownloadUrl);
+					if (nzbResponse.ok) {
+						const nzbContent = await nzbResponse.text();
+
+						// Run NNTP availability check
+						const availability = await checkNzbAvailability(nzbContent);
+
+						if (availability.skipped) {
+							logger.warn('[Grab] NNTP pre-flight check skipped - no servers configured', {
+								title: data.title,
+								indexer: data.indexerName
+							});
+						} else if (!availability.available) {
+							logger.warn('[Grab] NZB availability check failed', {
+								title: data.title,
+								completionPercentage: availability.completionPercentage,
+								checkedSegments: availability.checkedSegments,
+								missingSegments: availability.missingSegments
+							});
+
+							// Auto-blocklist this release from this specific indexer
+							try {
+								await blocklistService.addToBlocklist(
+									{
+										title: data.title,
+										indexerId: data.indexerId,
+										size: data.size,
+										protocol: 'usenet'
+									},
+									{
+										movieId: data.movieId,
+										seriesId: data.seriesId,
+										episodeIds: data.episodeIds,
+										reason: 'download_failed',
+										message: `Unavailable on usenet: ${availability.completionPercentage}% articles found`,
+										expiresInHours: 72
+									}
+								);
+								logger.info('[Grab] Auto-blocklisted unavailable release', {
+									title: data.title,
+									indexer: data.indexerName,
+									expiresInHours: 72
+								});
+							} catch (blocklistError) {
+								logger.warn('[Grab] Failed to add to blocklist', {
+									title: data.title,
+									error: blocklistError instanceof Error ? blocklistError.message : 'Unknown'
+								});
+							}
+
+							return json(
+								{
+									success: false,
+									error: `Release unavailable on usenet: ${availability.completionPercentage}% of articles found. Release may be incomplete or DMCA'd.`
+								} satisfies GrabResponse,
+								{ status: 400 }
+							);
+						} else {
+							logger.info('[Grab] NZB availability check passed', {
+								title: data.title,
+								completionPercentage: availability.completionPercentage
+							});
+						}
+					}
+				} catch (nzbError) {
+					logger.warn('[Grab] Failed to fetch NZB for pre-flight check, proceeding anyway', {
+						title: data.title,
+						error: nzbError instanceof Error ? nzbError.message : 'Unknown'
+					});
+				}
+			}
+
+			logger.debug('Usenet download ready', { title: data.title });
 		} else {
 			// Resolve torrent - fetches through the indexer with proper auth/cookies
 			const resolutionService = getDownloadResolutionService();

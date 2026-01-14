@@ -23,7 +23,8 @@
 		FileSignature,
 		List,
 		Radio,
-		Calendar
+		Calendar,
+		Activity
 	} from 'lucide-svelte';
 
 	let { children } = $props();
@@ -40,6 +41,7 @@
 			]
 		},
 		{ href: '/queue', label: 'Queue', icon: Download },
+		{ href: '/activity', label: 'Activity', icon: Activity },
 		{
 			label: 'Live TV',
 			icon: Radio,

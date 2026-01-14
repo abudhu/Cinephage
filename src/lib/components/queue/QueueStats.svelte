@@ -1,26 +1,13 @@
 <script lang="ts">
 	import type { QueueStats as QueueStatsType } from '$lib/types/queue';
 	import { Download, Upload, HardDrive, AlertCircle, CheckCircle2, Pause } from 'lucide-svelte';
+	import { formatSpeed } from '$lib/utils/format';
 
 	interface Props {
 		stats: QueueStatsType;
 	}
 
 	let { stats }: Props = $props();
-
-	// Format bytes to human readable
-	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-	}
-
-	// Format speed
-	function formatSpeed(bytesPerSecond: number): string {
-		return formatBytes(bytesPerSecond) + '/s';
-	}
 </script>
 
 <div class="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">

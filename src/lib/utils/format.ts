@@ -58,3 +58,22 @@ export function formatCountry(code: string, locale = 'en-US'): string {
 		return code;
 	}
 }
+
+/**
+ * Format bytes to human-readable string (e.g., "1.5 GB")
+ */
+export function formatBytes(bytes: number | null | undefined): string {
+	if (!bytes) return '-';
+	const k = 1024;
+	const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+	const i = Math.floor(Math.log(bytes) / Math.log(k));
+	return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+/**
+ * Format speed (bytes per second) to human-readable string (e.g., "1.5 MB/s")
+ */
+export function formatSpeed(bytesPerSecond: number | null | undefined): string {
+	if (!bytesPerSecond) return '-';
+	return formatBytes(bytesPerSecond) + '/s';
+}

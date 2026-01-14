@@ -63,8 +63,9 @@ interface MigrationDefinition {
  * Version 36: Add nzb_segment_cache table for persistent prefetched segments
  * Version 37: Add stream_url_type column to stalker_accounts for tracking URL resolution method
  * Version 38: Add alternate_titles table for multi-title search support
+ * Version 39: Add release_group column to download_queue and download_history
  */
-export const CURRENT_SCHEMA_VERSION = 38;
+export const CURRENT_SCHEMA_VERSION = 39;
 
 /**
  * All table definitions with CREATE TABLE IF NOT EXISTS
@@ -2868,6 +2869,24 @@ const MIGRATIONS: MigrationDefinition[] = [
 					.run();
 
 				logger.info('[SchemaSync] Created alternate_titles table for multi-title search support');
+			}
+		}
+	},
+	// Version 39: Add release_group column to download_queue and download_history
+	{
+		version: 39,
+		name: 'add_release_group_columns',
+		apply: (sqlite) => {
+			// Add release_group to download_queue if not exists
+			if (!columnExists(sqlite, 'download_queue', 'release_group')) {
+				sqlite.prepare(`ALTER TABLE "download_queue" ADD COLUMN "release_group" text`).run();
+				logger.info('[SchemaSync] Added release_group column to download_queue');
+			}
+
+			// Add release_group to download_history if not exists
+			if (!columnExists(sqlite, 'download_history', 'release_group')) {
+				sqlite.prepare(`ALTER TABLE "download_history" ADD COLUMN "release_group" text`).run();
+				logger.info('[SchemaSync] Added release_group column to download_history');
 			}
 		}
 	}

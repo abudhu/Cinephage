@@ -1,23 +1,16 @@
 import type { PageServerLoad } from './$types';
 import { db } from '$lib/server/db';
-import {
-	movies,
-	series,
-	episodes,
-	downloadQueue,
-	downloadHistory,
-	monitoringHistory,
-	unmatchedFiles
-} from '$lib/server/db/schema';
+import { movies, series, episodes, downloadQueue, unmatchedFiles } from '$lib/server/db/schema';
 import { count, eq, desc, and, not, inArray, sql, gte } from 'drizzle-orm';
 import { logger } from '$lib/logging';
+import type { UnifiedActivity } from '$lib/types/activity';
 
 /**
  * Terminal download statuses (items that are done processing)
  */
 const TERMINAL_STATUSES = ['imported', 'removed'];
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ fetch, url }) => {
 	try {
 		// Get library stats
 		const [movieStats] = await db
@@ -52,35 +45,22 @@ export const load: PageServerLoad = async () => {
 		// Get unmatched files count
 		const [unmatchedCount] = await db.select({ count: count() }).from(unmatchedFiles);
 
-		// Get recent activity - downloads and monitoring combined
-		const recentDownloads = await db
-			.select({
-				id: downloadHistory.id,
-				title: downloadHistory.title,
-				status: downloadHistory.status,
-				movieId: downloadHistory.movieId,
-				seriesId: downloadHistory.seriesId,
-				quality: downloadHistory.quality,
-				createdAt: downloadHistory.createdAt
-			})
-			.from(downloadHistory)
-			.orderBy(desc(downloadHistory.createdAt))
-			.limit(10);
-
-		const recentMonitoring = await db
-			.select({
-				id: monitoringHistory.id,
-				taskType: monitoringHistory.taskType,
-				status: monitoringHistory.status,
-				movieId: monitoringHistory.movieId,
-				seriesId: monitoringHistory.seriesId,
-				releaseGrabbed: monitoringHistory.releaseGrabbed,
-				releasesFound: monitoringHistory.releasesFound,
-				executedAt: monitoringHistory.executedAt
-			})
-			.from(monitoringHistory)
-			.orderBy(desc(monitoringHistory.executedAt))
-			.limit(10);
+		// Get recent activity - consolidated from activity API
+		let recentActivity: UnifiedActivity[] = [];
+		try {
+			const activityUrl = new URL('/api/activity', url.origin);
+			activityUrl.searchParams.set('limit', '8');
+			const activityResponse = await fetch(activityUrl.toString());
+			const activityData = await activityResponse.json();
+			if (activityData.success && activityData.activities) {
+				recentActivity = activityData.activities;
+			}
+		} catch (activityError) {
+			logger.error(
+				'[Dashboard] Error fetching activity',
+				activityError instanceof Error ? activityError : undefined
+			);
+		}
 
 		// Get recently added to library
 		const recentlyAddedMovies = await db
@@ -183,10 +163,7 @@ export const load: PageServerLoad = async () => {
 				activeDownloads: activeDownloads?.count || 0,
 				unmatchedFiles: unmatchedCount?.count || 0
 			},
-			recentActivity: {
-				downloads: recentDownloads,
-				monitoring: recentMonitoring
-			},
+			recentActivity,
 			recentlyAdded: {
 				movies: recentlyAddedMovies,
 				series: recentlyAddedSeries
@@ -206,10 +183,7 @@ export const load: PageServerLoad = async () => {
 				activeDownloads: 0,
 				unmatchedFiles: 0
 			},
-			recentActivity: {
-				downloads: [],
-				monitoring: []
-			},
+			recentActivity: [] as UnifiedActivity[],
 			recentlyAdded: {
 				movies: [],
 				series: []

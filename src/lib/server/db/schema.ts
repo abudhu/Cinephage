@@ -944,6 +944,9 @@ export const downloadQueue = sqliteTable(
 			hdr?: string;
 		}>(),
 
+		// Release group (extracted from release title at grab time)
+		releaseGroup: text('release_group'),
+
 		// Timestamps
 		addedAt: text('added_at').$defaultFn(() => new Date().toISOString()),
 		// When download started (first saw progress > 0)
@@ -1015,6 +1018,9 @@ export const downloadHistory = sqliteTable('download_history', {
 		codec?: string;
 		hdr?: string;
 	}>(),
+
+	// Release group (extracted from release title at grab time)
+	releaseGroup: text('release_group'),
 
 	// Paths
 	importedPath: text('imported_path'),

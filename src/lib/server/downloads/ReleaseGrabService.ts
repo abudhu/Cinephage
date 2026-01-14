@@ -41,6 +41,7 @@ import { join, relative } from 'node:path';
 import type { EnhancedReleaseResult } from '$lib/server/indexers/types';
 import { categoryMatchesSearchType, getCategoryContentType } from '$lib/server/indexers/types';
 import type { DownloadInfo } from '$lib/server/downloadClients/core/interfaces.js';
+import { blocklistService } from '$lib/server/monitoring/specifications/BlocklistSpecification.js';
 
 const logger = createChildLogger({ module: 'ReleaseGrabService' });
 const parser = new ReleaseParser();
@@ -297,6 +298,8 @@ class ReleaseGrabService {
 			episodeIds,
 			seasonNumber,
 			quality,
+			size: release.size,
+			releaseGroup: parsed.releaseGroup ?? undefined,
 			isAutomatic: isAutomatic ?? false,
 			isUpgrade: isUpgrade ?? false
 		});
@@ -410,6 +413,38 @@ class ReleaseGrabService {
 								checkedSegments: availability.checkedSegments,
 								missingSegments: availability.missingSegments
 							});
+
+							// Auto-blocklist this release from this specific indexer
+							// Uses 72-hour expiry in case the release becomes available later
+							try {
+								await blocklistService.addToBlocklist(
+									{
+										title: release.title,
+										indexerId: release.indexerId,
+										size: release.size,
+										protocol: 'usenet'
+									},
+									{
+										movieId,
+										seriesId,
+										episodeIds,
+										reason: 'download_failed',
+										message: `Unavailable on usenet: ${availability.completionPercentage}% articles found`,
+										expiresInHours: 72
+									}
+								);
+								logger.info('[ReleaseGrab] Auto-blocklisted unavailable release', {
+									title: release.title,
+									indexer: release.indexerName,
+									expiresInHours: 72
+								});
+							} catch (blocklistError) {
+								logger.warn('[ReleaseGrab] Failed to add to blocklist', {
+									title: release.title,
+									error: blocklistError instanceof Error ? blocklistError.message : 'Unknown'
+								});
+							}
+
 							return {
 								success: false,
 								error: `Release unavailable on usenet: ${availability.completionPercentage}% of articles found. Release may be incomplete or DMCA'd.`
@@ -483,6 +518,8 @@ class ReleaseGrabService {
 			episodeIds,
 			seasonNumber,
 			quality,
+			size: release.size,
+			releaseGroup: parsed.releaseGroup ?? undefined,
 			isAutomatic: isAutomatic ?? false,
 			isUpgrade: isUpgrade ?? false
 		});

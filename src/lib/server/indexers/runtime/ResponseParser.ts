@@ -16,6 +16,7 @@ import { TemplateEngine } from '../engine/TemplateEngine';
 import { FilterEngine } from '../engine/FilterEngine';
 import { SelectorEngine, type JsonValue } from '../engine/SelectorEngine';
 import { logger } from '$lib/logging';
+import { extractInfoHash } from '$lib/server/downloadClients/utils/hashUtils';
 
 export interface ParseResult {
 	releases: ReleaseResult[];
@@ -468,7 +469,12 @@ export class ResponseParser {
 			result.magnetUrl = magnetUrl; // Magnet URLs are already absolute
 		}
 
-		const infoHash = values['infohash'] || values['hash'];
+		// Get infohash from field or auto-extract from magnet URI
+		let infoHash: string | null | undefined = values['infohash'] || values['hash'];
+		if (!infoHash && magnetUrl) {
+			// Auto-extract from magnet URL (like Radarr does)
+			infoHash = extractInfoHash(magnetUrl);
+		}
 		if (infoHash) {
 			result.infoHash = infoHash.toLowerCase();
 		}

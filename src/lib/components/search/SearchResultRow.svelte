@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Download, ExternalLink, Loader2, Check, X, Play } from 'lucide-svelte';
+	import { formatBytes } from '$lib/utils/format';
 
 	interface Release {
 		guid: string;
@@ -49,14 +50,6 @@
 		error = null,
 		streaming = false
 	}: Props = $props();
-
-	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-	}
 
 	function formatAge(date: string | Date): string {
 		const publishDate = typeof date === 'string' ? new Date(date) : date;

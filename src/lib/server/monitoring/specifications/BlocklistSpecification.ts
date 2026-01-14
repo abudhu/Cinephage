@@ -42,6 +42,8 @@ class BlocklistService {
 
 	/**
 	 * Check if a release is blocklisted
+	 * Supports indexer-specific blocking: a release blocked from one indexer
+	 * can still be grabbed from a different indexer.
 	 */
 	async isBlocklisted(
 		release: ReleaseCandidate,
@@ -78,7 +80,12 @@ class BlocklistService {
 				options.movieId ? eq(blocklist.movieId, options.movieId) : undefined,
 				options.seriesId ? eq(blocklist.seriesId, options.seriesId) : undefined,
 				// Must not be expired
-				or(isNull(blocklist.expiresAt), gt(blocklist.expiresAt, now))
+				or(isNull(blocklist.expiresAt), gt(blocklist.expiresAt, now)),
+				// Indexer-specific blocking: only block if entry has no indexerId (global)
+				// or if it matches the release's indexerId
+				release.indexerId
+					? or(isNull(blocklist.indexerId), eq(blocklist.indexerId, release.indexerId))
+					: undefined
 			),
 			limit: 1
 		});

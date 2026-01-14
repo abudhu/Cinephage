@@ -864,7 +864,8 @@ export class MonitoringSearchService {
 					title: release.title,
 					score: release.totalScore ?? 0,
 					size: release.size,
-					infoHash: release.infoHash
+					infoHash: release.infoHash,
+					indexerId: release.indexerId
 				};
 
 				// Check blocklist
@@ -1443,7 +1444,8 @@ export class MonitoringSearchService {
 						codec: release.parsed.codec,
 						hdr: release.parsed.hdr ?? undefined
 					},
-					infoHash: release.infoHash
+					infoHash: release.infoHash,
+					indexerId: release.indexerId
 				};
 
 				// Check blocklist first
@@ -1824,7 +1826,8 @@ export class MonitoringSearchService {
 						codec: release.parsed.codec,
 						hdr: release.parsed.hdr ?? undefined
 					},
-					infoHash: release.infoHash
+					infoHash: release.infoHash,
+					indexerId: release.indexerId
 				};
 
 				// Check blocklist first
@@ -2274,7 +2277,8 @@ export class MonitoringSearchService {
 					title: release.title,
 					score: release.totalScore ?? 0,
 					size: release.size,
-					infoHash: release.infoHash
+					infoHash: release.infoHash,
+					indexerId: release.indexerId
 				};
 
 				// Check blocklist
@@ -2455,7 +2459,8 @@ export class MonitoringSearchService {
 					title: release.title,
 					score: release.totalScore ?? 0,
 					size: release.size,
-					infoHash: release.infoHash
+					infoHash: release.infoHash,
+					indexerId: release.indexerId
 				};
 
 				// Check blocklist
