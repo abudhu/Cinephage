@@ -18,11 +18,11 @@
 
 	function handleInput(e: Event) {
 		const target = e.target as HTMLInputElement;
-		value = target.value;
+		value = target.value.replace(/^\s+/, '');
 
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			onSearch(value.trim());
+			onSearch(value);
 		}, 300);
 	}
 

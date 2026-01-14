@@ -74,13 +74,15 @@
 	} | null>(null);
 	let searchLoadMoreTrigger = $state<HTMLElement>();
 
+	const normalizedSearchQuery = $derived(searchQuery.trim());
 	// Computed: are we in search mode?
-	let isSearchMode = $derived(searchQuery.length > 0);
+	let isSearchMode = $derived(normalizedSearchQuery.length > 0);
 
 	async function handleSearch(query: string) {
 		searchQuery = query;
+		const normalizedQuery = query.trim();
 
-		if (!query.trim()) {
+		if (!normalizedQuery) {
 			searchResults = [];
 			searchPagination = null;
 			return;
@@ -89,7 +91,7 @@
 		isSearching = true;
 		try {
 			const res = await fetch(
-				`/api/discover/search?query=${encodeURIComponent(query)}&type=${type}`
+				`/api/discover/search?query=${encodeURIComponent(normalizedQuery)}&type=${type}`
 			);
 			if (!res.ok) throw new Error('Search failed');
 
@@ -112,7 +114,7 @@
 		try {
 			const nextPage = searchPagination.page + 1;
 			const res = await fetch(
-				`/api/discover/search?query=${encodeURIComponent(searchQuery)}&type=${type}&page=${nextPage}`
+				`/api/discover/search?query=${encodeURIComponent(normalizedSearchQuery)}&type=${type}&page=${nextPage}`
 			);
 			if (!res.ok) return;
 

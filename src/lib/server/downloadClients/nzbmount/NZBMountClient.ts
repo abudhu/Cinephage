@@ -70,19 +70,17 @@ export class NZBMountClient implements IDownloadClient {
 			const categories = sabConfig.categories.map((c) => c.name);
 
 			let diskInfo: SabnzbdFullStatus | null = null;
-			if (this.mountMode !== 'altmount') {
-				try {
-					diskInfo = await this.proxy.getFullStatus();
-				} catch (statusError) {
-					const statusMessage =
-						statusError instanceof SabnzbdApiError ? statusError.message : String(statusError);
-					if (!statusMessage.toLowerCase().includes('unknown mode')) {
-						throw statusError;
-					}
-					logger.warn('[NZB-Mount] fullstatus not supported, skipping disk info', {
-						error: statusMessage
-					});
+			try {
+				diskInfo = await this.proxy.getFullStatus();
+			} catch (statusError) {
+				const statusMessage =
+					statusError instanceof SabnzbdApiError ? statusError.message : String(statusError);
+				if (!statusMessage.toLowerCase().includes('unknown mode')) {
+					throw statusError;
 				}
+				logger.warn('[NZB-Mount] fullstatus not supported, skipping disk info', {
+					error: statusMessage
+				});
 			}
 
 			let warnings: SabnzbdWarning[] = [];

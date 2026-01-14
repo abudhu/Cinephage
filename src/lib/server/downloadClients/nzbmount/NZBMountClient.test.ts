@@ -41,7 +41,7 @@ describe('NZBMountClient test routine', () => {
 		proxyClass.instances.length = 0;
 	});
 
-	it('skips fullstatus for altmount', async () => {
+	it('continues when fullstatus returns unknown mode for altmount', async () => {
 		const client = new NZBMountClient({
 			host: 'localhost',
 			port: 3000,
@@ -54,13 +54,13 @@ describe('NZBMountClient test routine', () => {
 		proxy.getConfig.mockResolvedValue({ categories: [], misc: { complete_dir: '/complete' } });
 		proxy.getWarnings.mockResolvedValue([]);
 		proxy.getFullStatus.mockImplementation(() => {
-			throw new Error('fullstatus should not be called');
+			throw new SabnzbdApiError('Unknown mode: fullstatus');
 		});
 
 		const result = await client.test();
 
 		expect(result.success).toBe(true);
-		expect(proxy.getFullStatus).not.toHaveBeenCalled();
+		expect(proxy.getFullStatus).toHaveBeenCalled();
 	});
 
 	it('continues when fullstatus returns unknown mode for nzbdav', async () => {
