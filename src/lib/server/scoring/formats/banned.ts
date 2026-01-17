@@ -183,6 +183,106 @@ export const BANNED_CONTENT: CustomFormat[] = [
 ];
 
 /**
+ * Raw disk / BR-DISK releases
+ * These are full disc structures (BDMV folders, untouched Blu-rays) that are:
+ * - Not directly playable without special software
+ * - Often contain malicious content disguised as media
+ * - Waste bandwidth (50-100GB for content that could be 5-15GB remuxed)
+ *
+ * Patterns derived from Radarr's RawDiskSpecification and QualityParser
+ * @see https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/DecisionEngine/Specifications/RawDiskSpecification.cs
+ * @see https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/Parser/QualityParser.cs
+ */
+export const BANNED_RAW_DISK: CustomFormat[] = [
+	{
+		id: 'banned-brdisk',
+		name: 'BR-DISK',
+		description: 'Raw Blu-ray disc structure (BDMV/untouched)',
+		category: 'banned',
+		tags: ['Banned', 'BR-DISK', 'Raw', 'Disc'],
+		conditions: [
+			{
+				name: 'BR-DISK',
+				type: 'release_title',
+				// Matches: BR-DISK, BD-ISO, BDISO, COMPLETE BLURAY, Full Blu-ray, BDMV, AVC/HEVC with Blu-ray (untouched indicators)
+				// Also matches: BD25, BD50, BD66, BD100, UHD ISO variants
+				pattern:
+					'\\b(BR[-_. ]?DISK|BD[-_. ]?ISO|BDISO|COMPLETE[-_. ]?BLURAY|FULL[-_. ]?BLURAY|FULL[-_. ]?BD|BD[-_. ]?FULL|BDMV|VOB[-_. ]?IFO)\\b|\\b(BD|UHD)[-_. ]?(25|50|66|100)[-_. ]?ISO\\b',
+				required: true,
+				negate: false
+			}
+		]
+	},
+	{
+		id: 'banned-disc-numbered',
+		name: 'Disc Numbered Release',
+		description: 'Multi-disc Blu-ray releases (Disc 1, Disc 2, etc.)',
+		category: 'banned',
+		tags: ['Banned', 'BR-DISK', 'Raw', 'Disc'],
+		conditions: [
+			{
+				name: 'Disc Numbered',
+				type: 'release_title',
+				// Matches: "Disc 1 1080p Blu-ray", "Disk 2 Bluray", etc.
+				pattern: '\\b(Dis[ck])[-_. ]?\\d+[-_. ](?:(?:480|720|1080|2160)[ip][-_. ])?Blu-?ray\\b',
+				required: true,
+				negate: false
+			}
+		]
+	},
+	{
+		id: 'banned-full-bluray',
+		name: 'Full Blu-ray',
+		description: 'Full/untouched Blu-ray releases',
+		category: 'banned',
+		tags: ['Banned', 'BR-DISK', 'Raw', 'Disc'],
+		conditions: [
+			{
+				name: 'Full Blu-ray',
+				type: 'release_title',
+				// Matches: "1080p Full Blu-ray", "Full Bluray 2160p", etc.
+				pattern: '\\b(?:480|720|1080|2160)[ip][-_. ]FULL[-_. ]Blu-?ray\\b',
+				required: true,
+				negate: false
+			}
+		]
+	},
+	{
+		id: 'banned-dvd-disk',
+		name: 'DVD-R/DVD5/DVD9',
+		description: 'Raw DVD disc images',
+		category: 'banned',
+		tags: ['Banned', 'DVD', 'Raw', 'Disc'],
+		conditions: [
+			{
+				name: 'DVD Disk',
+				type: 'release_title',
+				// Matches: DVD-R, DVDR, DVD5, DVD9, xDVD9, MDVD-R, etc.
+				pattern: '\\b\\d?x?M?DVD[-_. ]?[R59]\\b',
+				required: true,
+				negate: false
+			}
+		]
+	},
+	{
+		id: 'banned-3d-bd',
+		name: '3D BD',
+		description: '3D Blu-ray disc releases',
+		category: 'banned',
+		tags: ['Banned', 'BR-DISK', '3D', 'Disc'],
+		conditions: [
+			{
+				name: '3D BD',
+				type: 'release_title',
+				pattern: '\\b3D[-_. ]?BD\\b',
+				required: true,
+				negate: false
+			}
+		]
+	}
+];
+
+/**
  * Music/Soundtrack releases
  * These are audio-only releases, not video content
  */
@@ -308,6 +408,7 @@ export const ALL_BANNED_FORMATS: CustomFormat[] = [
 	...BANNED_RETAGGING,
 	...BANNED_FAKE_HDR,
 	...BANNED_CONTENT,
+	...BANNED_RAW_DISK,
 	...BANNED_MUSIC,
 	...BANNED_GAMES,
 	...BANNED_SOURCES
