@@ -45,6 +45,54 @@ Kill conflicting process or change port in `.env`.
 
 ---
 
+## Docker Permission Issues
+
+### "Cannot create directory" or "Permission denied"
+
+**Error**: `cp: can't create directory 'data/indexers': Permission denied`
+
+This occurs when the container's user doesn't have write access to host-mounted volumes.
+
+1. Find your host user/group IDs:
+
+   ```bash
+   id -u  # Your UID (e.g., 1000)
+   id -g  # Your GID (e.g., 1000)
+   ```
+
+2. Set these in your `.env` file (use your actual values from step 1):
+
+   ```bash
+   CINEPHAGE_UID=<your-uid>
+   CINEPHAGE_GID=<your-gid>
+   ```
+
+3. Fix existing directory ownership (replace with your UID:GID):
+
+   ```bash
+   sudo chown -R $(id -u):$(id -g) ./data ./logs
+   ```
+
+   This command automatically uses your current user's IDs.
+
+### "SQLITE_CANTOPEN: unable to open database file"
+
+This is usually caused by the same permission issue above. The database file cannot be created or accessed due to UID/GID mismatch.
+
+Follow the same steps as "Cannot create directory" above.
+
+### Container exits immediately
+
+Check container logs for permission errors:
+
+```bash
+docker compose logs cinephage
+```
+
+Look for "Cannot write to" or "Permission denied" messages and follow the fix above.
+
+---
+
 ## Database Issues
 
 ### Database locked

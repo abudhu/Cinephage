@@ -4,6 +4,50 @@ set -e
 # Ensure we're in the app directory
 cd /app
 
+# Verify write access to critical directories
+# This catches UID/GID mismatches early with helpful error messages
+check_permissions() {
+  local dir="$1"
+  local name="$2"
+  
+  # Try to create directory if it doesn't exist
+  if [ ! -d "$dir" ]; then
+    if ! mkdir -p "$dir" 2>/dev/null; then
+      echo "ERROR: Cannot create $name directory at $dir"
+      echo ""
+      echo "Container is running as UID=$(id -u) GID=$(id -g)"
+      echo ""
+      echo "To fix this, ensure the host directory has correct ownership:"
+      echo "  sudo chown -R $(id -u):$(id -g) $(dirname $dir)"
+      echo ""
+      echo "Or set CINEPHAGE_UID and CINEPHAGE_GID in your .env file to match"
+      echo "your host user (run 'id -u' and 'id -g' to find your IDs)."
+      exit 1
+    fi
+  fi
+  
+  # Verify we can write to the directory
+  if ! touch "$dir/.write-test" 2>/dev/null; then
+    echo "ERROR: Cannot write to $name directory at $dir"
+    echo ""
+    echo "Container is running as UID=$(id -u) GID=$(id -g)"
+    echo ""
+    echo "To fix this, update the host directory ownership:"
+    echo "  sudo chown -R $(id -u):$(id -g) $dir"
+    echo ""
+    echo "Or set CINEPHAGE_UID and CINEPHAGE_GID in your .env file to match"
+    echo "your host user (run 'id -u' and 'id -g' to find your IDs)."
+    exit 1
+  fi
+  rm -f "$dir/.write-test"
+}
+
+# Check critical directories before proceeding
+echo "Checking directory permissions..."
+check_permissions "/app/data" "data"
+check_permissions "/app/logs" "logs"
+echo "Directory permissions OK"
+
 # Copy bundled indexers if definitions directory is empty or missing
 # Use absolute paths to avoid working directory issues
 DEFINITIONS_DIR="/app/data/indexers/definitions"
