@@ -13,6 +13,7 @@
 	} from 'lucide-svelte';
 	import { resolvePath } from '$lib/utils/routing';
 	import { formatBytes } from '$lib/utils/format';
+	import { getMediaInfo } from '$lib/utils/media';
 
 	interface Props {
 		item: HistoryItemWithMedia;
@@ -43,32 +44,6 @@
 		rejected: { label: 'Rejected', variant: 'badge-warning', icon: XCircle },
 		removed: { label: 'Removed', variant: 'badge-ghost', icon: Trash2 }
 	};
-
-	function getMediaInfo(
-		historyItem: HistoryItemWithMedia
-	): { title: string; href: string; type: 'movie' | 'tv' } | null {
-		if (historyItem.movie) {
-			return {
-				title:
-					historyItem.movie.title + (historyItem.movie.year ? ` (${historyItem.movie.year})` : ''),
-				href: `/movies/${historyItem.movie.id}`,
-				type: 'movie'
-			};
-		}
-		if (historyItem.series) {
-			let title =
-				historyItem.series.title + (historyItem.series.year ? ` (${historyItem.series.year})` : '');
-			if (historyItem.seasonNumber !== null && historyItem.seasonNumber !== undefined) {
-				title += ` - S${historyItem.seasonNumber}`;
-			}
-			return {
-				title,
-				href: `/tv/${historyItem.series.id}`,
-				type: 'tv'
-			};
-		}
-		return null;
-	}
 
 	const config = $derived(statusConfig[item.status] || statusConfig.removed);
 	const Icon = $derived(config.icon);

@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { resolvePath } from '$lib/utils/routing';
 	import { formatBytes, formatSpeed } from '$lib/utils/format';
+	import { getMediaInfo } from '$lib/utils/media';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { QueueItemWithMedia } from '$lib/types/queue';
 	import {
@@ -44,31 +45,6 @@
 			return `${minutes}m ${secs}s`;
 		}
 		return `${secs}s`;
-	}
-
-	function getMediaInfo(
-		queueItem: QueueItemWithMedia
-	): { title: string; href: string; type: 'movie' | 'tv' } | null {
-		if (queueItem.movie) {
-			return {
-				title: queueItem.movie.title + (queueItem.movie.year ? ` (${queueItem.movie.year})` : ''),
-				href: `/movies/${queueItem.movie.id}`,
-				type: 'movie'
-			};
-		}
-		if (queueItem.series) {
-			let title =
-				queueItem.series.title + (queueItem.series.year ? ` (${queueItem.series.year})` : '');
-			if (queueItem.seasonNumber !== null && queueItem.seasonNumber !== undefined) {
-				title += ` - S${queueItem.seasonNumber}`;
-			}
-			return {
-				title,
-				href: `/tv/${queueItem.series.id}`,
-				type: 'tv'
-			};
-		}
-		return null;
 	}
 
 	const mediaInfo = $derived(getMediaInfo(item));

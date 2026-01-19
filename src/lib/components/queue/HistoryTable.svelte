@@ -11,6 +11,7 @@
 	} from 'lucide-svelte';
 	import { resolvePath } from '$lib/utils/routing';
 	import { formatBytes } from '$lib/utils/format';
+	import { getMediaInfo } from '$lib/utils/media';
 	import HistoryItemCard from './HistoryItemCard.svelte';
 
 	interface Props {
@@ -42,31 +43,6 @@
 		rejected: { label: 'Rejected', variant: 'badge-warning', icon: XCircle },
 		removed: { label: 'Removed', variant: 'badge-ghost', icon: Trash2 }
 	};
-
-	// Get media info
-	function getMediaInfo(
-		item: HistoryItemWithMedia
-	): { title: string; href: string; type: 'movie' | 'tv' } | null {
-		if (item.movie) {
-			return {
-				title: item.movie.title + (item.movie.year ? ` (${item.movie.year})` : ''),
-				href: `/movies/${item.movie.id}`,
-				type: 'movie'
-			};
-		}
-		if (item.series) {
-			let title = item.series.title + (item.series.year ? ` (${item.series.year})` : '');
-			if (item.seasonNumber !== null && item.seasonNumber !== undefined) {
-				title += ` - Season ${item.seasonNumber}`;
-			}
-			return {
-				title,
-				href: `/tv/${item.series.id}`,
-				type: 'tv'
-			};
-		}
-		return null;
-	}
 </script>
 
 {#if items.length === 0}
