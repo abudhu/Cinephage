@@ -74,7 +74,7 @@ RUN chmod +x ./docker-entrypoint.sh
 # Pre-fetch Camoufox browser binaries into the node user's cache
 RUN mkdir -p /home/node/.cache && chown -R node:node /home/node/.cache
 USER node
-RUN ./node_modules/.bin/camoufox fetch
+RUN ./node_modules/.bin/camoufox-js fetch
 
 # Set environment variables
 ENV NODE_ENV=production
