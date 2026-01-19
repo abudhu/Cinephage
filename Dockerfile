@@ -70,9 +70,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
-# Install all Firefox browser dependencies (same approach as Byparr)
-RUN npx playwright install-deps firefox
-
 # Create necessary directories with correct ownership (node user is UID 1000)
 RUN mkdir -p data logs .cache && chown -R node:node data logs .cache
 
