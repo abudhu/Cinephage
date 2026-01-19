@@ -31,7 +31,7 @@ RUN npm prune --omit=dev
 # Store cache in app directory for non-standard UID/GID compatibility
 ENV HOME=/app
 ENV CAMOUFOX_CACHE_DIR=/app/camoufox
-RUN mkdir -p /app/camoufox && npx camoufox-js fetch --path /app/camoufox
+RUN mkdir -p /app/camoufox && npx camoufox-js fetch
 
 # ==========================================
 # Runtime Stage
