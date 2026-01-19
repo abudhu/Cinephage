@@ -15,10 +15,14 @@ import type { ProxyConfig } from '../types';
  * Managed browser instance
  */
 export interface ManagedBrowser {
+	/** Internal tracking ID */
+	id: string;
 	browser: Browser;
 	context: BrowserContext;
 	page: Page;
 	createdAt: Date;
+	/** Whether this browser has been closed (prevents double-close) */
+	isClosed: boolean;
 }
 
 /**
@@ -136,13 +140,25 @@ export class CamoufoxManager {
 			const page = await context.newPage();
 
 			const managed: ManagedBrowser = {
+				id,
 				browser,
 				context,
 				page,
-				createdAt: new Date()
+				createdAt: new Date(),
+				isClosed: false
 			};
 
 			this.activeBrowsers.set(id, managed);
+
+			// Handle browser disconnect (crash, external kill, etc.)
+			// This prevents stale entries in activeBrowsers map
+			browser.on('disconnected', () => {
+				if (!managed.isClosed) {
+					managed.isClosed = true;
+					this.activeBrowsers.delete(id);
+					logger.debug('[CamoufoxManager] Browser disconnected externally', { id });
+				}
+			});
 
 			logger.debug('[CamoufoxManager] Created browser', {
 				id,
@@ -173,21 +189,29 @@ export class CamoufoxManager {
 	 * Close a managed browser
 	 */
 	async closeBrowser(managed: ManagedBrowser): Promise<void> {
+		// Prevent double-close
+		if (managed.isClosed) {
+			return;
+		}
+		managed.isClosed = true;
+
 		try {
-			// Find and remove from active list
-			for (const [id, browser] of this.activeBrowsers) {
-				if (browser === managed) {
-					this.activeBrowsers.delete(id);
-					break;
-				}
-			}
+			// Remove from active list using the stored ID (O(1) instead of O(n))
+			this.activeBrowsers.delete(managed.id);
 
 			// Close browser (this closes all contexts and pages)
-			await managed.browser.close().catch(() => {});
+			// Note: camoufox-js has an upstream bug where syncAttachVD wraps close()
+			// but doesn't return the Promise, so close() may return undefined.
+			// We must check if the result is thenable before calling .catch()
+			const closeResult = managed.browser.close();
+			if (closeResult && typeof closeResult.then === 'function') {
+				await closeResult.catch(() => {});
+			}
 
-			logger.debug('[CamoufoxManager] Closed browser');
+			logger.debug('[CamoufoxManager] Closed browser', { id: managed.id });
 		} catch (error) {
 			logger.warn('[CamoufoxManager] Error closing browser', {
+				id: managed.id,
 				error: error instanceof Error ? error.message : String(error)
 			});
 		}
@@ -202,8 +226,18 @@ export class CamoufoxManager {
 
 		await Promise.all(
 			browsers.map(async (managed) => {
+				// Skip already-closed browsers
+				if (managed.isClosed) {
+					return;
+				}
+				managed.isClosed = true;
+
 				try {
-					await managed.browser.close().catch(() => {});
+					// Handle upstream camoufox-js bug where close() may return undefined
+					const closeResult = managed.browser.close();
+					if (closeResult && typeof closeResult.then === 'function') {
+						await closeResult.catch(() => {});
+					}
 				} catch {
 					// Ignore errors during cleanup
 				}

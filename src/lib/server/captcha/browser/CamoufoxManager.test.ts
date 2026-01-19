@@ -34,7 +34,8 @@ function createMockBrowser(contexts: BrowserContext[] = []): Browser {
 	return {
 		close: vi.fn().mockResolvedValue(undefined),
 		contexts: vi.fn().mockReturnValue(contexts),
-		newContext: vi.fn()
+		newContext: vi.fn(),
+		on: vi.fn() // For browser disconnect event handler
 	} as unknown as Browser;
 }
 
