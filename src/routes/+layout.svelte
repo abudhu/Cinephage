@@ -5,6 +5,7 @@
 	import { layoutState } from '$lib/layout.svelte';
 	import { page } from '$app/stores';
 	import { resolvePath } from '$lib/utils/routing';
+	import { env } from '$env/dynamic/public';
 	import {
 		Menu,
 		Home,
@@ -66,6 +67,8 @@
 			]
 		}
 	];
+
+	const appVersion = env.PUBLIC_APP_VERSION?.trim();
 </script>
 
 <svelte:head>
@@ -184,7 +187,10 @@
 			</ul>
 
 			<!-- Sidebar Footer -->
-			<div class="flex justify-center border-t border-base-300 p-2">
+			<div class="flex flex-col items-center border-t border-base-300 p-2">
+				{#if appVersion}
+					<div class="mb-2 text-xs text-base-content/50">{appVersion}</div>
+				{/if}
 				<ThemeSelector
 					class={layoutState.isSidebarExpanded ? 'dropdown-top' : 'dropdown-right'}
 					showLabel={layoutState.isSidebarExpanded}

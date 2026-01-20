@@ -12,9 +12,15 @@ name: Docker Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional custom tag for the multi-arch image (e.g., dev, rc1)'
+        required: false
+        default: ''
 
 env:
   REGISTRY: ghcr.io
@@ -42,6 +48,16 @@ jobs:
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
+      - name: Set build version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "APP_VERSION=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "APP_VERSION=dev-$(date +%Y%m%d)-${{ github.run_number }}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -54,7 +70,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build test image
-        run: docker buildx build --load -t cinephage:test .
+        run: docker buildx build --load -t cinephage:test --build-arg APP_VERSION=${{ env.APP_VERSION }} .
 
       - name: Test Docker image
         run: |
@@ -88,6 +104,8 @@ jobs:
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:amd64
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
           cache-from: type=gha,scope=amd64
           cache-to: type=gha,mode=max,scope=amd64
 
@@ -108,6 +126,16 @@ jobs:
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
+      - name: Set build version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "APP_VERSION=${{ github.event.inputs.tag }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "APP_VERSION=dev-$(date +%Y%m%d)-${{ github.run_number }}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -127,6 +155,8 @@ jobs:
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:arm64
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
           cache-from: type=gha,scope=arm64
           cache-to: type=gha,mode=max,scope=arm64
 
@@ -144,6 +174,10 @@ jobs:
     steps:
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set dev tag date
+        if: github.ref == 'refs/heads/dev'
+        run: echo "DEV_TAG_DATE=$(date +%Y%m%d)" >> "$GITHUB_ENV"
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -163,6 +197,8 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+            type=raw,value=dev-${{ env.DEV_TAG_DATE }}-${{ github.run_number }},enable=${{ github.ref == 'refs/heads/dev' }}
           labels: |
             org.opencontainers.image.title=Cinephage
             org.opencontainers.image.description=Self-hosted media management application
