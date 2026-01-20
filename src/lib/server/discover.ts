@@ -110,9 +110,9 @@ export async function getDiscoverResults(params: DiscoverParams) {
 	let totalResults = 0;
 
 	if (trending === 'day' || trending === 'week') {
-		const data = (await tmdb.fetch(
-			fetchOptions(`/trending/all/${trending}`, page)
-		)) as PaginatedResponse<Movie | TVShow>;
+		const trendingEndpoint = `/trending/all/${trending}`;
+		const url = `${trendingEndpoint}?page=${encodeURIComponent(page)}`;
+		const data = (await tmdb.fetch(url)) as PaginatedResponse<Movie | TVShow>;
 		results = data.results;
 		totalPages = data.total_pages;
 		totalResults = data.total_results;
