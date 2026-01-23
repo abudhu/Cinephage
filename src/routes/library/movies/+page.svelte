@@ -9,74 +9,74 @@
 	import LibraryBulkActionBar from '$lib/components/library/LibraryBulkActionBar.svelte';
 	import BulkQualityProfileModal from '$lib/components/library/BulkQualityProfileModal.svelte';
 	import BulkDeleteModal from '$lib/components/library/BulkDeleteModal.svelte';
-	import { Tv, CheckSquare, X } from 'lucide-svelte';
+	import { Clapperboard, CheckSquare, X } from 'lucide-svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 
 	let { data } = $props();
 
 	// Selection state
-	let selectedSeries = new SvelteSet<string>();
+	let selectedMovies = new SvelteSet<string>();
 	let showCheckboxes = $state(false);
 	let bulkLoading = $state(false);
 	let currentBulkAction = $state<'monitor' | 'unmonitor' | 'quality' | 'delete' | null>(null);
 	let isQualityModalOpen = $state(false);
 	let isDeleteModalOpen = $state(false);
 
-	const selectedCount = $derived(selectedSeries.size);
+	const selectedCount = $derived(selectedMovies.size);
 
 	function toggleSelectionMode() {
 		showCheckboxes = !showCheckboxes;
 		if (!showCheckboxes) {
-			selectedSeries.clear();
+			selectedMovies.clear();
 		}
 	}
 
 	function handleItemSelectChange(id: string, selected: boolean) {
 		if (selected) {
-			selectedSeries.add(id);
+			selectedMovies.add(id);
 		} else {
-			selectedSeries.delete(id);
+			selectedMovies.delete(id);
 		}
 	}
 
 	function selectAll() {
-		for (const show of data.series) {
-			selectedSeries.add(show.id);
+		for (const movie of data.movies) {
+			selectedMovies.add(movie.id);
 		}
 	}
 
 	function clearSelection() {
-		selectedSeries.clear();
+		selectedMovies.clear();
 	}
 
 	async function handleBulkMonitor(monitored: boolean) {
 		bulkLoading = true;
 		currentBulkAction = monitored ? 'monitor' : 'unmonitor';
 		try {
-			const response = await fetch('/api/library/series/batch', {
+			const response = await fetch('/api/library/movies/batch', {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					seriesIds: [...selectedSeries],
+					movieIds: [...selectedMovies],
 					updates: { monitored }
 				})
 			});
 			const result = await response.json();
 			if (result.success) {
 				// Update local data
-				for (const show of data.series) {
-					if (selectedSeries.has(show.id)) {
-						show.monitored = monitored;
+				for (const movie of data.movies) {
+					if (selectedMovies.has(movie.id)) {
+						movie.monitored = monitored;
 					}
 				}
-				toasts.success(`${monitored ? 'Monitoring' : 'Unmonitored'} ${result.updatedCount} series`);
-				selectedSeries.clear();
+				toasts.success(`${monitored ? 'Monitoring' : 'Unmonitored'} ${result.updatedCount} movies`);
+				selectedMovies.clear();
 				showCheckboxes = false;
 			} else {
-				toasts.error(result.error || 'Failed to update series');
+				toasts.error(result.error || 'Failed to update movies');
 			}
 		} catch {
-			toasts.error('Failed to update series');
+			toasts.error('Failed to update movies');
 		} finally {
 			bulkLoading = false;
 			currentBulkAction = null;
@@ -87,31 +87,31 @@
 		bulkLoading = true;
 		currentBulkAction = 'quality';
 		try {
-			const response = await fetch('/api/library/series/batch', {
+			const response = await fetch('/api/library/movies/batch', {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					seriesIds: [...selectedSeries],
+					movieIds: [...selectedMovies],
 					updates: { scoringProfileId: profileId }
 				})
 			});
 			const result = await response.json();
 			if (result.success) {
 				// Update local data
-				for (const show of data.series) {
-					if (selectedSeries.has(show.id)) {
-						show.scoringProfileId = profileId;
+				for (const movie of data.movies) {
+					if (selectedMovies.has(movie.id)) {
+						movie.scoringProfileId = profileId;
 					}
 				}
-				toasts.success(`Updated quality profile for ${result.updatedCount} series`);
-				selectedSeries.clear();
+				toasts.success(`Updated quality profile for ${result.updatedCount} movies`);
+				selectedMovies.clear();
 				showCheckboxes = false;
 				isQualityModalOpen = false;
 			} else {
-				toasts.error(result.error || 'Failed to update series');
+				toasts.error(result.error || 'Failed to update movies');
 			}
 		} catch {
-			toasts.error('Failed to update series');
+			toasts.error('Failed to update movies');
 		} finally {
 			bulkLoading = false;
 			currentBulkAction = null;
@@ -122,11 +122,11 @@
 		bulkLoading = true;
 		currentBulkAction = 'delete';
 		try {
-			const response = await fetch('/api/library/series/batch', {
+			const response = await fetch('/api/library/movies/batch', {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					seriesIds: [...selectedSeries],
+					movieIds: [...selectedMovies],
 					deleteFiles,
 					removeFromLibrary
 				})
@@ -135,19 +135,19 @@
 			if (result.success || result.deletedCount > 0 || result.removedCount > 0) {
 				if (removeFromLibrary && result.removedCount > 0) {
 					// Remove from local data entirely
-					data.series = data.series.filter((show) => !selectedSeries.has(show.id));
-					toasts.success(`Removed ${result.removedCount} series from library`);
+					data.movies = data.movies.filter((movie) => !selectedMovies.has(movie.id));
+					toasts.success(`Removed ${result.removedCount} movies from library`);
 				} else {
-					// Update local data - mark as having no files
-					for (const show of data.series) {
-						if (selectedSeries.has(show.id)) {
-							show.episodeFileCount = 0;
-							show.percentComplete = 0;
+					// Update local data - mark as missing
+					for (const movie of data.movies) {
+						if (selectedMovies.has(movie.id)) {
+							movie.hasFile = false;
+							movie.files = [];
 						}
 					}
-					toasts.success(`Deleted files for ${result.deletedCount} series`);
+					toasts.success(`Deleted files for ${result.deletedCount} movies`);
 				}
-				selectedSeries.clear();
+				selectedMovies.clear();
 				showCheckboxes = false;
 				isDeleteModalOpen = false;
 			} else {
@@ -173,8 +173,6 @@
 		{ value: 'title-desc', label: 'Title (Z-A)' },
 		{ value: 'added-desc', label: 'Date Added (Newest)' },
 		{ value: 'added-asc', label: 'Date Added (Oldest)' },
-		{ value: 'progress-desc', label: 'Progress (Highest)' },
-		{ value: 'progress-asc', label: 'Progress (Lowest)' },
 		{ value: 'year-desc', label: 'Year (Newest)' },
 		{ value: 'year-asc', label: 'Year (Oldest)' }
 	];
@@ -190,22 +188,12 @@
 			]
 		},
 		{
-			key: 'status',
-			label: 'Show Status',
+			key: 'fileStatus',
+			label: 'File Status',
 			options: [
 				{ value: 'all', label: 'All' },
-				{ value: 'continuing', label: 'Continuing' },
-				{ value: 'ended', label: 'Ended' }
-			]
-		},
-		{
-			key: 'progress',
-			label: 'Progress',
-			options: [
-				{ value: 'all', label: 'All' },
-				{ value: 'complete', label: 'Complete (100%)' },
-				{ value: 'inProgress', label: 'In Progress' },
-				{ value: 'notStarted', label: 'Not Started (0%)' }
+				{ value: 'hasFile', label: 'Has File' },
+				{ value: 'missingFile', label: 'Missing File' }
 			]
 		},
 		{
@@ -267,13 +255,12 @@
 	}
 
 	function clearFilters() {
-		goto(resolve('/tv'), { keepFocus: true, noScroll: true });
+		goto(resolve('/library/movies'), { keepFocus: true, noScroll: true });
 	}
 
 	const currentFilters = $derived({
 		monitored: data.filters.monitored,
-		status: data.filters.status,
-		progress: data.filters.progress,
+		fileStatus: data.filters.fileStatus,
 		qualityProfile: data.filters.qualityProfile,
 		resolution: data.filters.resolution,
 		videoCodec: data.filters.videoCodec,
@@ -296,7 +283,7 @@
 				<h1
 					class="min-w-0 bg-gradient-to-r from-primary to-secondary bg-clip-text text-xl font-bold text-transparent sm:text-2xl"
 				>
-					TV Shows
+					Movies
 				</h1>
 				<span class="badge badge-ghost badge-sm sm:badge-lg">{data.total}</span>
 				{#if data.total !== data.totalUnfiltered}
@@ -328,7 +315,7 @@
 							<span class="hidden sm:inline">Monitor</span>
 						</div>
 						<form
-							id="tv-monitor-all"
+							id="movies-monitor-all"
 							action="?/toggleAllMonitored"
 							method="POST"
 							use:enhance
@@ -338,7 +325,7 @@
 							<input type="hidden" name="monitored" value="true" />
 						</form>
 						<form
-							id="tv-unmonitor-all"
+							id="movies-unmonitor-all"
 							action="?/toggleAllMonitored"
 							method="POST"
 							use:enhance
@@ -353,12 +340,12 @@
 							class="dropdown-content menu z-[2] w-52 rounded-box border border-base-content/10 bg-base-200 p-2 shadow-lg"
 						>
 							<li>
-								<button type="submit" class="w-full text-left" form="tv-monitor-all">
+								<button type="submit" class="w-full text-left" form="movies-monitor-all">
 									Monitor All
 								</button>
 							</li>
 							<li>
-								<button type="submit" class="w-full text-left" form="tv-unmonitor-all">
+								<button type="submit" class="w-full text-left" form="movies-unmonitor-all">
 									Unmonitor All
 								</button>
 							</li>
@@ -398,31 +385,31 @@
 				</svg>
 				<span>{data.error}</span>
 			</div>
-		{:else if data.series.length === 0}
+		{:else if data.movies.length === 0}
 			<!-- Empty State -->
 			<div class="flex flex-col items-center justify-center py-20 text-center opacity-50">
-				<Tv class="mb-4 h-20 w-20" />
+				<Clapperboard class="mb-4 h-20 w-20" />
 				{#if data.totalUnfiltered === 0}
-					<p class="text-2xl font-bold">No TV shows in your library</p>
-					<p class="mt-2">Add TV shows from the Discover page to see them here.</p>
-					<a href={resolvePath('/discover?type=tv')} class="btn mt-6 btn-primary"
-						>Discover TV Shows</a
+					<p class="text-2xl font-bold">No movies in your library</p>
+					<p class="mt-2">Add movies from the Discover page to see them here.</p>
+					<a href={resolvePath('/discover?type=movie')} class="btn mt-6 btn-primary"
+						>Discover Movies</a
 					>
 				{:else}
-					<p class="text-2xl font-bold">No TV shows match your filters</p>
+					<p class="text-2xl font-bold">No movies match your filters</p>
 					<p class="mt-2">Try adjusting your filters to see more results.</p>
 					<button class="btn mt-6 btn-primary" onclick={clearFilters}>Clear Filters</button>
 				{/if}
 			</div>
 		{:else}
-			<!-- Series Grid -->
+			<!-- Movies Grid -->
 			<div class="animate-in fade-in slide-in-from-bottom-4 duration-500">
 				<div class="grid grid-cols-3 gap-3 sm:gap-4 lg:grid-cols-9">
-					{#each data.series as show (show.id)}
+					{#each data.movies as movie (movie.id)}
 						<LibraryMediaCard
-							item={show}
+							item={movie}
 							selectable={showCheckboxes}
-							selected={selectedSeries.has(show.id)}
+							selected={selectedMovies.has(movie.id)}
 							onSelectChange={handleItemSelectChange}
 						/>
 					{/each}
@@ -437,7 +424,7 @@
 	{selectedCount}
 	loading={bulkLoading}
 	currentAction={currentBulkAction}
-	mediaType="series"
+	mediaType="movie"
 	onMonitor={() => handleBulkMonitor(true)}
 	onUnmonitor={() => handleBulkMonitor(false)}
 	onChangeQuality={() => (isQualityModalOpen = true)}
@@ -451,7 +438,7 @@
 	{selectedCount}
 	qualityProfiles={data.qualityProfiles}
 	saving={bulkLoading && currentBulkAction === 'quality'}
-	mediaType="series"
+	mediaType="movie"
 	onSave={handleBulkQualityChange}
 	onCancel={() => (isQualityModalOpen = false)}
 />
@@ -460,7 +447,7 @@
 <BulkDeleteModal
 	open={isDeleteModalOpen}
 	{selectedCount}
-	mediaType="series"
+	mediaType="movie"
 	loading={bulkLoading && currentBulkAction === 'delete'}
 	onConfirm={handleBulkDelete}
 	onCancel={() => (isDeleteModalOpen = false)}
