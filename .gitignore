@@ -67,3 +67,6 @@ dist/
 # Local environment overrides
 .env.local
 .env.*.local
+
+# Nix build result
+result
