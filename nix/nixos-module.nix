@@ -24,7 +24,7 @@
         package = mkOption {
           type = types.package;
           default = inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.default;
-          defaultText = lib.literalExpression "inputs.self.packages.\${pkgs.stdenv.hostPlatform.system}.cinephage";
+          defaultText = lib.literalExpression "inputs.self.packages.\${pkgs.stdenv.hostPlatform.system}.default";
           description = "The Cinephage package to use.";
         };
 
