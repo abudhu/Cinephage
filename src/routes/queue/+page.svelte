@@ -5,7 +5,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { Download, History, Filter, CheckSquare, X } from 'lucide-svelte';
+	import { Download, History, Filter, CheckSquare, X, Trash2, Loader2 } from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import QueueTable from '$lib/components/queue/QueueTable.svelte';
 	import QueueStats from '$lib/components/queue/QueueStats.svelte';
@@ -18,12 +18,36 @@
 	let { data }: { data: PageData } = $props();
 
 	let activeTab = $state<'queue' | 'history'>('queue');
+	const failedItems = $derived(data.queueItems.filter((item) => item.status === 'failed'));
+	const failedCount = $derived(failedItems.length);
+	const failedIds = $derived(failedItems.map((item) => item.id));
 
 	// Queue selection state (for bulk remove)
 	let selectedQueueIds = new SvelteSet<string>();
 	let showQueueCheckboxes = $state(false);
 	let isBulkRemoveModalOpen = $state(false);
 	let bulkLoading = $state(false);
+	let failedModalOpen = $state(false);
+	let failedModalLoading = $state(false);
+
+	function handleFailedModalDone(opts: {
+		success: boolean;
+		removedCount?: number;
+		error?: string;
+	}) {
+		failedModalLoading = false;
+		if (opts.success) {
+			failedModalOpen = false;
+			invalidateAll();
+			toasts.success(
+				opts.removedCount && opts.removedCount > 0
+					? `Removed ${opts.removedCount} failed item${opts.removedCount === 1 ? '' : 's'}`
+					: 'Failed downloads cleared from queue'
+			);
+		} else {
+			toasts.error(opts.error || 'Unable to clear failed downloads');
+		}
+	}
 
 	const selectedQueueCount = $derived(selectedQueueIds.size);
 
@@ -101,6 +125,11 @@
 			invalidateAll();
 			invalidateTimeout = null;
 		}, INVALIDATE_DEBOUNCE_MS);
+	}
+
+	function openFailedModal() {
+		if (failedCount === 0) return;
+		failedModalOpen = true;
 	}
 
 	function connectSSE() {
@@ -328,6 +357,24 @@
 					{/each}
 				</select>
 			{/if}
+
+			{#if failedCount > 0}
+				<div class="ml-auto flex items-center gap-2">
+					<button
+						class="btn btn-sm btn-error"
+						disabled={failedModalLoading}
+						onclick={openFailedModal}
+					>
+						{#if failedModalLoading}
+							<Loader2 class="h-4 w-4 animate-spin" />
+							Clearing…
+						{:else}
+							<Trash2 class="h-4 w-4" />
+							Clear Failed ({failedCount})
+						{/if}
+					</button>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Queue Table or Empty State -->
@@ -498,4 +545,17 @@
 	onCancel={() => (isBulkRemoveModalOpen = false)}
 	onSubmitting={() => (bulkLoading = true)}
 	onDone={handleBulkRemoveDone}
+/>
+
+<QueueBulkRemoveModal
+	open={failedModalOpen}
+	selectedCount={failedCount}
+	selectedIds={failedIds}
+	loading={failedModalLoading}
+	onCancel={() => {
+		failedModalOpen = false;
+		failedModalLoading = false;
+	}}
+	onSubmitting={() => (failedModalLoading = true)}
+	onDone={handleFailedModalDone}
 />
