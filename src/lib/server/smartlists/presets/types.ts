@@ -19,7 +19,8 @@ export interface PresetDefinition {
 	id: string;
 	name: string;
 	description: string;
-	url: string;
+	url?: string;
+	config?: Record<string, unknown>;
 	default?: boolean;
 }
 
@@ -40,7 +41,8 @@ export interface ExternalListPreset {
 	name: string;
 	description: string;
 	icon: string;
-	url: string;
+	url?: string;
+	config?: Record<string, unknown>;
 	isDefault: boolean;
 	settings: PresetSetting[];
 }

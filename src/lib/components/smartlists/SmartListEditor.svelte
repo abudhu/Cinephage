@@ -109,6 +109,15 @@
 	let previewTotalResults = $state(0);
 	let previewTotalPages = $state(0);
 	let previewUnfilteredTotal = $state(0);
+	let previewDebugData = $state<
+		| {
+				failedItems?: Array<{ imdbId?: string; title: string; year?: number; error?: string }>;
+				resolvedCount?: number;
+				failedCount?: number;
+				duplicatesRemoved?: number;
+		  }
+		| undefined
+	>(undefined);
 
 	// Debounce timer
 	let debounceTimer: ReturnType<typeof setTimeout>;
@@ -117,6 +126,7 @@
 	async function fetchPreview() {
 		previewLoading = true;
 		previewError = null;
+		previewItems = []; // Clear old items immediately to prevent showing stale data
 
 		try {
 			const res = await fetch('/api/smartlists/preview', {
@@ -141,6 +151,7 @@
 			previewTotalResults = data.totalResults;
 			previewTotalPages = data.totalPages;
 			previewUnfilteredTotal = data.unfilteredTotal ?? data.totalResults;
+			previewDebugData = undefined; // No debug data for TMDB discover
 		} catch (e) {
 			previewError = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
@@ -152,6 +163,7 @@
 	async function fetchExternalPreview() {
 		previewLoading = true;
 		previewError = null;
+		previewItems = []; // Clear old items immediately to prevent showing stale data
 
 		try {
 			const res = await fetch('/api/smartlists/external/preview', {
@@ -162,6 +174,7 @@
 					url: externalSourceConfig.url,
 					headers: externalSourceConfig.headers,
 					presetId,
+					config: presetSettings,
 					itemLimit,
 					page: previewPage
 				})
@@ -177,6 +190,13 @@
 			previewTotalResults = data.totalResults;
 			previewTotalPages = data.totalPages;
 			previewUnfilteredTotal = data.unfilteredTotal ?? data.totalResults;
+			// Capture debug data for external lists
+			previewDebugData = {
+				failedItems: data.failedItems,
+				resolvedCount: data.resolvedCount,
+				failedCount: data.failedCount,
+				duplicatesRemoved: data.duplicatesRemoved
+			};
 		} catch (e) {
 			previewError = e instanceof Error ? e.message : 'An error occurred';
 		} finally {
@@ -382,7 +402,11 @@
 
 			<!-- Filters (only for TMDB Discover) -->
 			{#if listSourceType === 'tmdb-discover'}
-				<FilterBuilder {mediaType} bind:filters />
+				<FilterBuilder
+					{mediaType}
+					bind:filters
+					on:sortByChange={(e) => (sortBy = e.detail.sortBy)}
+				/>
 			{/if}
 
 			<!-- Settings -->
@@ -397,6 +421,7 @@
 				bind:autoAddMonitored
 				{rootFolders}
 				{scoringProfiles}
+				{listSourceType}
 			/>
 		</div>
 
@@ -414,6 +439,36 @@
 				unfilteredTotal={previewUnfilteredTotal}
 				onPageChange={handlePageChange}
 				onRetry={fetchPreview}
+				debugData={{
+					timestamp: new Date().toISOString(),
+					listType: listSourceType,
+					configuration: {
+						mediaType,
+						filters: filters as Record<string, unknown>,
+						sortBy,
+						itemLimit,
+						excludeInLibrary,
+						listSourceType,
+						presetId,
+						presetProvider,
+						externalSourceConfig
+					},
+					pagination: {
+						page: previewPage,
+						totalPages: previewTotalPages,
+						totalResults: previewTotalResults,
+						unfilteredTotal: previewUnfilteredTotal
+					},
+					items: previewItems,
+					failedItems: previewDebugData?.failedItems,
+					metadata: previewDebugData
+						? {
+								resolvedCount: previewDebugData.resolvedCount,
+								failedCount: previewDebugData.failedCount,
+								duplicatesRemoved: previewDebugData.duplicatesRemoved
+							}
+						: undefined
+				}}
 			/>
 		</div>
 	</div>

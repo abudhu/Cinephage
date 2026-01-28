@@ -45,7 +45,7 @@
 			await fetch(`/api/smartlists/${data.list.id}/items`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'add-to-library', tmdbIds: [tmdbId] })
+				body: JSON.stringify({ action: 'addToLibrary', tmdbIds: [tmdbId] })
 			});
 			await invalidateAll();
 		} finally {
@@ -96,7 +96,7 @@
 			await fetch(`/api/smartlists/${data.list.id}/items`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'add-to-library', tmdbIds })
+				body: JSON.stringify({ action: 'addToLibrary', tmdbIds })
 			});
 			await invalidateAll();
 		} finally {

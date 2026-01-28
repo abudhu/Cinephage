@@ -66,9 +66,61 @@ export interface TraktListConfig {
 }
 
 /**
+ * Configuration for IMDb list sources
+ */
+export interface ImdbListConfig {
+	/** IMDb list ID (e.g., 'ls060044601') */
+	listId: string;
+	/** Optional media type filter */
+	mediaType?: 'movie' | 'tv' | '';
+}
+
+/**
+ * Configuration for TMDb Popular list sources
+ */
+export interface TmdbPopularConfig {
+	/** List type: 'popular', 'theaters', 'top', 'upcoming' */
+	listType: 'popular' | 'theaters' | 'top' | 'upcoming';
+	/** Minimum vote average (0-10) */
+	minVoteAverage?: number;
+	/** Minimum vote count */
+	minVotes?: number;
+	/** Certification filter (e.g., 'PG-13', 'R') */
+	certification?: string;
+	/** Include genre IDs (comma-separated) */
+	includeGenreIds?: string;
+	/** Exclude genre IDs (comma-separated) */
+	excludeGenreIds?: string;
+	/** Release date from (YYYY-MM-DD) */
+	primaryReleaseDateGte?: string;
+	/** Release date to (YYYY-MM-DD) */
+	primaryReleaseDateLte?: string;
+	/** Original language code (e.g., 'en', 'es') */
+	withOriginalLanguage?: string;
+	/** Maximum pages to fetch */
+	maxPages?: number;
+}
+
+/**
+ * Configuration for TMDb List sources
+ */
+export interface TmdbListConfig {
+	/** TMDb list ID */
+	listId: string;
+	/** Maximum pages to fetch */
+	maxPages?: number;
+}
+
+/**
  * Union type for all external source configurations
  */
-export type ExternalSourceConfig = ExternalJsonConfig | TraktListConfig | Record<string, unknown>;
+export type ExternalSourceConfig =
+	| ExternalJsonConfig
+	| TraktListConfig
+	| ImdbListConfig
+	| TmdbPopularConfig
+	| TmdbListConfig
+	| Record<string, unknown>;
 
 /**
  * Result from fetching an external list
@@ -106,8 +158,8 @@ export interface ExternalListProvider {
 	/**
 	 * Fetch items from the external source
 	 * @param config Provider-specific configuration
-	 * @param mediaType 'movie' or 'tv' - used for ID resolution context
+	 * @param mediaType 'movie', 'tv', or '' (empty string for all types) - used for ID resolution context
 	 * @returns Promise resolving to the list result
 	 */
-	fetchItems(config: unknown, mediaType: 'movie' | 'tv'): Promise<ExternalListResult>;
+	fetchItems(config: unknown, mediaType: 'movie' | 'tv' | ''): Promise<ExternalListResult>;
 }

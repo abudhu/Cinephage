@@ -75,14 +75,14 @@ const createSchema = z.object({
 	externalSourceConfig: z
 		.object({
 			url: z.string().optional(),
-			headers: z.record(z.unknown()).optional(),
+			headers: z.record(z.string(), z.unknown()).optional(),
 			listId: z.string().optional(),
 			username: z.string().optional()
 		})
 		.optional(),
 	presetId: z.string().optional(),
 	presetProvider: z.string().optional(),
-	presetSettings: z.record(z.unknown()).optional()
+	presetSettings: z.record(z.string(), z.unknown()).optional()
 });
 
 export const GET: RequestHandler = async () => {

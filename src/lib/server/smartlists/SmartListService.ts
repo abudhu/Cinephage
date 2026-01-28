@@ -1335,15 +1335,26 @@ export class SmartListService {
 		const startTime = Date.now();
 		const id = list.id;
 
-		// Resolve URL from preset if presetId exists, otherwise use externalSourceConfig URL
-		let externalSourceConfig = list.externalSourceConfig;
+		// Build external source config from preset and user settings
+		let externalSourceConfig = list.externalSourceConfig ?? {};
 		if (list.presetId) {
-			const presetUrl = presetService.getListUrl(list.presetId, list.externalSourceConfig?.url);
-			if (presetUrl) {
+			const preset = presetService.getPreset(list.presetId);
+			if (preset) {
+				// Start with preset config (for providers like tmdb-popular)
 				externalSourceConfig = {
-					...list.externalSourceConfig,
-					url: presetUrl
+					...preset.config,
+					...externalSourceConfig
 				};
+
+				// Add URL if preset has one (for external-json provider)
+				if (preset.url) {
+					externalSourceConfig.url = preset.url;
+				}
+
+				logger.info('[SmartListService] Using preset config', {
+					presetId: list.presetId,
+					config: externalSourceConfig
+				});
 			}
 		}
 
@@ -1378,10 +1389,8 @@ export class SmartListService {
 			}
 
 			// Fetch items from external source
-			const externalResult = await provider.fetchItems(
-				externalSourceConfig,
-				list.mediaType as 'movie' | 'tv'
-			);
+			// For external lists, we pass empty string to show all content types (movies and TV)
+			const externalResult = await provider.fetchItems(externalSourceConfig, '');
 
 			if (externalResult.error) {
 				throw new Error(`External fetch failed: ${externalResult.error}`);
@@ -1605,6 +1614,7 @@ export class SmartListService {
 
 	/**
 	 * Resolve external list items to TMDB items
+	 * Uses concurrent batch processing for much faster resolution
 	 */
 	private async resolveExternalItems(
 		items: ExternalListItem[],
@@ -1624,21 +1634,24 @@ export class SmartListService {
 			originalLanguage?: string;
 		}>
 	> {
+		logger.info('[SmartListService] Starting external item resolution', {
+			listId,
+			itemCount: items.length,
+			mediaType
+		});
+
+		const startTime = Date.now();
+
+		// Use batch resolution with concurrency for much faster processing
+		const results = await externalIdResolver.resolveItemsBatch(items, mediaType, 10);
+
 		const resolved: ReturnType<typeof this.resolveExternalItems> extends Promise<infer T>
 			? T
 			: never = [];
 
 		for (let i = 0; i < items.length; i++) {
 			const item = items[i];
-			logger.debug('[SmartListService] Resolving external item', {
-				listId,
-				index: i,
-				title: item.title,
-				tmdbId: item.tmdbId,
-				imdbId: item.imdbId
-			});
-
-			const result = await externalIdResolver.resolveItem(item, mediaType);
+			const result = results[i];
 
 			if (result.success && result.tmdbId) {
 				resolved.push({
@@ -1652,13 +1665,6 @@ export class SmartListService {
 					genreIds: item.genreIds,
 					originalLanguage: item.originalLanguage
 				});
-
-				logger.debug('[SmartListService] Successfully resolved item', {
-					listId,
-					index: i,
-					title: item.title,
-					tmdbId: result.tmdbId
-				});
 			} else {
 				logger.warn('[SmartListService] Failed to resolve external item', {
 					listId,
@@ -1668,6 +1674,15 @@ export class SmartListService {
 				});
 			}
 		}
+
+		const duration = Date.now() - startTime;
+		logger.info('[SmartListService] External item resolution complete', {
+			listId,
+			totalItems: items.length,
+			resolvedCount: resolved.length,
+			failedCount: items.length - resolved.length,
+			durationMs: duration
+		});
 
 		return resolved;
 	}

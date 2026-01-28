@@ -6,6 +6,8 @@
 
 import type { ExternalListProvider } from './types.js';
 import { JsonListProvider } from './JsonListProvider.js';
+import { ImdbListProvider } from './ImdbListProvider.js';
+import { TmdbListProvider } from './TmdbListProvider.js';
 
 class ProviderRegistry {
 	private providers = new Map<string, ExternalListProvider>();
@@ -13,6 +15,8 @@ class ProviderRegistry {
 	constructor() {
 		// Register built-in providers
 		this.register(new JsonListProvider());
+		this.register(new ImdbListProvider());
+		this.register(new TmdbListProvider());
 	}
 
 	/**

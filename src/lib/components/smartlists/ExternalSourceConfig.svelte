@@ -211,7 +211,9 @@
 				body: JSON.stringify({
 					url,
 					headers: customHeaders,
-					mediaType
+					mediaType,
+					presetId,
+					config: presetSettings
 				})
 			});
 
@@ -342,6 +344,20 @@
 					{/if}
 				</div>
 			{/each}
+
+			<!-- Info notice about mixed content -->
+			<div class="mt-4 rounded-lg border border-info/30 bg-info/10 p-3">
+				<div class="flex items-start gap-2">
+					<AlertCircle class="mt-0.5 h-4 w-4 text-info" />
+					<div class="text-xs text-base-content/80">
+						<p class="font-medium">Import lists show all content types</p>
+						<p class="mt-1">
+							Movies and TV shows from the source will be displayed together. The media type
+							selector at the top only affects TMDB Discover lists.
+						</p>
+					</div>
+				</div>
+			</div>
 
 			<!-- Test Connection Button for Presets -->
 			<div class="flex items-center gap-3 pt-2">

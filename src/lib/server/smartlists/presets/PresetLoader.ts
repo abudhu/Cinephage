@@ -48,6 +48,7 @@ export class PresetLoader {
 							description: preset.description,
 							icon: provider.icon,
 							url: preset.url,
+							config: preset.config,
 							isDefault: preset.default ?? false,
 							settings: provider.settings
 						};
@@ -56,6 +57,26 @@ export class PresetLoader {
 						logger.debug('[PresetLoader] Loaded preset', {
 							id: fullPreset.id,
 							name: fullPreset.name
+						});
+					}
+
+					// Create a "custom" preset for providers that allow user-defined lists
+					if (provider.settings.length > 0 && provider.presets.length === 0) {
+						const customPreset: ExternalListPreset = {
+							id: `${provider.provider}:custom`,
+							provider: provider.provider,
+							providerName: provider.name,
+							name: `Custom ${provider.name}`,
+							description: `Create a custom ${provider.name} with your own settings`,
+							icon: provider.icon,
+							isDefault: false,
+							settings: provider.settings
+						};
+
+						this.presets.set(customPreset.id, customPreset);
+						logger.debug('[PresetLoader] Loaded custom preset', {
+							id: customPreset.id,
+							provider: provider.provider
 						});
 					}
 

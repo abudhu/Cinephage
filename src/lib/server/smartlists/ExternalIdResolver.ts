@@ -104,7 +104,14 @@ export class ExternalIdResolver {
 				};
 			}
 
-			logger.warn('[ExternalIdResolver] IMDB ID not found in TMDB', { imdbId });
+			logger.warn('[ExternalIdResolver] IMDB ID not found in TMDB', {
+				imdbId,
+				mediaType,
+				movieResultsCount: result.movie_results?.length || 0,
+				tvResultsCount: result.tv_results?.length || 0,
+				hasMovieResults: result.movie_results && result.movie_results.length > 0,
+				hasTvResults: result.tv_results && result.tv_results.length > 0
+			});
 			return {
 				tmdbId: null,
 				success: false,
@@ -255,11 +262,111 @@ export class ExternalIdResolver {
 			if (result.success) {
 				return result;
 			}
-			// IMDB resolution failed, continue to title search
+			// IMDB resolution failed, log details and continue to title search
+			logger.warn('[ExternalIdResolver] IMDB resolution failed, falling back to title search', {
+				imdbId: item.imdbId,
+				title: item.title,
+				year: item.year,
+				mediaType,
+				error: result.error
+			});
+		} else {
+			logger.warn('[ExternalIdResolver] No IMDB ID available, using title search', {
+				title: item.title,
+				year: item.year,
+				mediaType
+			});
 		}
 
 		// Strategy 3: Search by title+year
-		return await this.resolveByTitle(item.title, item.year, mediaType);
+		const titleResult = await this.resolveByTitle(item.title, item.year, mediaType);
+
+		if (!titleResult.success) {
+			logger.warn('[ExternalIdResolver] Title search also failed', {
+				title: item.title,
+				year: item.year,
+				mediaType,
+				error: titleResult.error
+			});
+		}
+
+		return titleResult;
+	}
+
+	/**
+	 * Resolve multiple external items concurrently with batching
+	 * This is much faster than resolving items sequentially
+	 *
+	 * @param items - Array of items to resolve
+	 * @param mediaType - 'movie' or 'tv'
+	 * @param concurrency - Number of concurrent requests (default: 10)
+	 * @returns Array of resolution results in the same order as input
+	 */
+	async resolveItemsBatch(
+		items: Array<{
+			tmdbId?: number;
+			imdbId?: string;
+			title: string;
+			year?: number;
+		}>,
+		mediaType: 'movie' | 'tv',
+		concurrency: number = 10
+	): Promise<IdResolutionResult[]> {
+		if (items.length === 0) {
+			return [];
+		}
+
+		logger.info('[ExternalIdResolver] Starting batch resolution', {
+			itemCount: items.length,
+			mediaType,
+			concurrency
+		});
+
+		const startTime = Date.now();
+		const results: IdResolutionResult[] = new Array(items.length);
+		let completedCount = 0;
+		let successCount = 0;
+
+		// Process items in batches to control concurrency
+		for (let i = 0; i < items.length; i += concurrency) {
+			const batch = items.slice(i, i + concurrency);
+			const batchStartIndex = i;
+
+			// Process batch concurrently
+			await Promise.all(
+				batch.map(async (item, batchIndex) => {
+					const index = batchStartIndex + batchIndex;
+					const result = await this.resolveItem(item, mediaType);
+					results[index] = result;
+
+					completedCount++;
+					if (result.success) {
+						successCount++;
+					}
+
+					// Log progress every 50 items
+					if (completedCount % 50 === 0 || completedCount === items.length) {
+						logger.info('[ExternalIdResolver] Batch progress', {
+							completed: completedCount,
+							total: items.length,
+							successful: successCount,
+							progress: `${Math.round((completedCount / items.length) * 100)}%`
+						});
+					}
+				})
+			);
+		}
+
+		const duration = Date.now() - startTime;
+		logger.info('[ExternalIdResolver] Batch resolution complete', {
+			total: items.length,
+			successful: successCount,
+			failed: items.length - successCount,
+			durationMs: duration,
+			avgMsPerItem: Math.round(duration / items.length)
+		});
+
+		return results;
 	}
 }
 

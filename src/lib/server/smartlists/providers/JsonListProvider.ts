@@ -30,12 +30,12 @@ export class JsonListProvider implements ExternalListProvider {
 		return typeof cfg.url === 'string' && cfg.url.length > 0;
 	}
 
-	async fetchItems(config: unknown, mediaType: 'movie' | 'tv'): Promise<ExternalListResult> {
+	async fetchItems(config: unknown, mediaType: 'movie' | 'tv' | ''): Promise<ExternalListResult> {
 		const cfg = config as ExternalJsonConfig;
 
 		logger.info('[JsonListProvider] Fetching external JSON list', {
 			url: cfg.url,
-			mediaType
+			mediaType: mediaType || 'all'
 		});
 
 		try {
