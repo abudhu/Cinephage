@@ -19,8 +19,8 @@ if [ "$(id -u)" = "0" ] && [ -z "${CINEPHAGE_REEXEC:-}" ]; then
     usermod -o -u "$TARGET_UID" -g "$TARGET_GID" node
   fi
 
-  mkdir -p /app/.cache
-  chown -R node:node /app/data /app/logs /app/.cache 2>/dev/null || true
+  mkdir -p /home/node/.cache
+  chown -R node:node /app/data /app/logs /home/node/.cache 2>/dev/null || true
 
   export CINEPHAGE_REEXEC=1
   exec gosu node "$0" "$@"
@@ -95,7 +95,7 @@ fi
 
 # Download Camoufox browser if not already present
 # This is done at runtime to reduce image size and allow updates
-CAMOUFOX_CACHE_DIR="/app/.cache/camoufox"
+CAMOUFOX_CACHE_DIR="/home/node/.cache/camoufox"
 CAMOUFOX_MARKER="$CAMOUFOX_CACHE_DIR/version.json"
 if [ ! -f "$CAMOUFOX_MARKER" ]; then
   echo "Downloading Camoufox browser (first run only, ~80MB)..."

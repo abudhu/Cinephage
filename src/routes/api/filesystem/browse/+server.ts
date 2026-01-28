@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { readdir, stat } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
+import { homedir } from 'os';
 import { RootFolderService } from '$lib/server/downloadClients/RootFolderService';
 
 export interface DirectoryEntry {
@@ -18,11 +19,17 @@ export interface BrowseResponse {
 }
 
 /**
- * Validates that a path is within allowed boundaries (configured root folders or common base paths).
+ * Validates that a path is within allowed boundaries (home directory or configured root folders).
  * Prevents path traversal attacks.
  */
 async function isPathAllowed(requestedPath: string): Promise<boolean> {
 	const normalizedPath = resolve(requestedPath);
+	const homeDir = homedir();
+
+	// Always allow paths within home directory
+	if (normalizedPath.startsWith(homeDir)) {
+		return true;
+	}
 
 	// Also allow paths within configured root folders
 	const rootFolderService = new RootFolderService();
@@ -51,7 +58,7 @@ async function isPathAllowed(requestedPath: string): Promise<boolean> {
 }
 
 export const GET: RequestHandler = async ({ url }) => {
-	const rawPath = url.searchParams.get('path') || '/media';
+	const rawPath = url.searchParams.get('path') || homedir();
 	const requestedPath = resolve(rawPath); // Normalize to prevent ../ tricks
 
 	// Validate path is within allowed boundaries

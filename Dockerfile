@@ -75,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create necessary directories with correct ownership (node user is UID 1000)
-RUN mkdir -p data logs .cache && chown -R node:node data logs .cache
+RUN mkdir -p data logs && chown -R node:node data logs
 
 # Copy production dependencies and built artifacts from builder
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
@@ -98,8 +98,6 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV FFPROBE_PATH=/usr/bin/ffprobe
-# Set HOME to /app so all caches (Camoufox, npm, etc.) stay within /app
-ENV HOME=/app
 
 # Expose the application port
 EXPOSE 3000
