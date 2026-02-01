@@ -183,7 +183,7 @@ If you see: "ERROR: Failed to migrate data to /config/data"
 1. Temporarily run as root to perform migration:
 
    ```yaml
-   # In docker-compose.yaml, temporarily change:
+   # In docker-compose.yaml, temporarily add:
    user: '0:0' # Run as root
    ```
 
@@ -191,8 +191,8 @@ If you see: "ERROR: Failed to migrate data to /config/data"
 
    ```yaml
    environment:
-     - PUID=${CINEPHAGE_UID:-1000}
-     - PGID=${CINEPHAGE_GID:-1000}
+     - PUID=1000
+     - PGID=1000
    ```
 
 3. Start container and verify migration:
@@ -202,10 +202,10 @@ If you see: "ERROR: Failed to migrate data to /config/data"
    docker compose logs cinephage | grep -i migrat
    ```
 
-4. After successful migration, revert to normal user mode:
+4. After successful migration, remove the user flag from docker-compose.yaml:
 
    ```yaml
-   user: '${CINEPHAGE_UID:-1000}:${CINEPHAGE_GID:-1000}' # Back to normal
+   user: '0:0' # Run as root
    ```
 
 5. Remove old mounts and restart.
