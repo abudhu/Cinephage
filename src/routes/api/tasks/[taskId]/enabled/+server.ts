@@ -8,6 +8,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getUnifiedTaskById } from '$lib/server/tasks/UnifiedTaskRegistry';
 import { taskSettingsService } from '$lib/server/tasks/TaskSettingsService';
+import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler';
 import { z } from 'zod';
 
 const bodySchema = z.object({
@@ -53,6 +54,9 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 		const message = err instanceof Error ? err.message : 'Failed to update task state';
 		throw error(400, message);
 	}
+
+	// Emit settings change event for SSE clients
+	monitoringScheduler.emit('taskSettingsUpdated', { taskId, enabled });
 
 	return json({
 		success: true,

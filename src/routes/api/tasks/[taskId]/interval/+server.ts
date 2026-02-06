@@ -12,6 +12,7 @@ import {
 	isIntervalEditable
 } from '$lib/server/tasks/UnifiedTaskRegistry';
 import { taskSettingsService } from '$lib/server/tasks/TaskSettingsService';
+import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler';
 import { z } from 'zod';
 
 const bodySchema = z.object({
@@ -76,6 +77,16 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 		const message = err instanceof Error ? err.message : 'Failed to update interval';
 		throw error(400, message);
 	}
+
+	// Get the updated next run time to send to SSE clients
+	const nextRunTime = await taskSettingsService.getNextRunTime(taskId);
+
+	// Emit settings change event for SSE clients
+	monitoringScheduler.emit('taskSettingsUpdated', {
+		taskId,
+		intervalHours,
+		nextRunTime
+	});
 
 	return json({
 		success: true,
