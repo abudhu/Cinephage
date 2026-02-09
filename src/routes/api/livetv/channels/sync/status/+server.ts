@@ -6,13 +6,13 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getStalkerChannelService } from '$lib/server/livetv/stalker';
+import { getLiveTvChannelService } from '$lib/server/livetv/LiveTvChannelService';
 
 export const GET: RequestHandler = async () => {
-	const channelService = getStalkerChannelService();
+	const channelService = getLiveTvChannelService();
 
 	try {
-		const accounts = await channelService.getAccountSyncStatuses();
+		const accounts = await channelService.getSyncStatus();
 		return json({ accounts });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';

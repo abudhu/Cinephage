@@ -3011,11 +3011,11 @@ export const channelLineupItems = sqliteTable(
 		// Reference to the source account
 		accountId: text('account_id')
 			.notNull()
-			.references(() => stalkerAccounts.id, { onDelete: 'cascade' }),
+			.references(() => livetvAccounts.id, { onDelete: 'cascade' }),
 		// Reference to the cached channel
 		channelId: text('channel_id')
 			.notNull()
-			.references(() => stalkerChannels.id, { onDelete: 'cascade' }),
+			.references(() => livetvChannels.id, { onDelete: 'cascade' }),
 		// Position in the lineup (1-based, for drag-to-reorder)
 		position: integer('position').notNull(),
 		// Custom channel number for EPG/remote control
@@ -3025,7 +3025,7 @@ export const channelLineupItems = sqliteTable(
 		customLogo: text('custom_logo'),
 		epgId: text('epg_id'), // XMLTV EPG ID for Jellyfin/Plex matching
 		// EPG source override - use EPG data from a different channel
-		epgSourceChannelId: text('epg_source_channel_id').references(() => stalkerChannels.id, {
+		epgSourceChannelId: text('epg_source_channel_id').references(() => livetvChannels.id, {
 			onDelete: 'set null'
 		}),
 		// User-created category (separate from portal category)
@@ -3068,11 +3068,11 @@ export const channelLineupBackups = sqliteTable(
 		// Reference to the backup source account (can be different from primary)
 		accountId: text('account_id')
 			.notNull()
-			.references(() => stalkerAccounts.id, { onDelete: 'cascade' }),
+			.references(() => livetvAccounts.id, { onDelete: 'cascade' }),
 		// Reference to the backup channel
 		channelId: text('channel_id')
 			.notNull()
-			.references(() => stalkerChannels.id, { onDelete: 'cascade' }),
+			.references(() => livetvChannels.id, { onDelete: 'cascade' }),
 		// Priority order (1 = first backup, 2 = second, etc.)
 		priority: integer('priority').notNull(),
 		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
@@ -3093,8 +3093,9 @@ export type NewChannelLineupBackupRecord = typeof channelLineupBackups.$inferIns
 // ============================================================================
 
 /**
- * EPG Programs - Stores program guide data fetched from Stalker portal accounts.
+ * EPG Programs - Stores program guide data fetched from provider accounts.
  * Linked to channels for now/next and guide queries.
+ * Updated for multi-provider support (Stalker, XStream, M3U).
  */
 export const epgPrograms = sqliteTable(
 	'epg_programs',
@@ -3102,16 +3103,18 @@ export const epgPrograms = sqliteTable(
 		id: text('id')
 			.primaryKey()
 			.$defaultFn(() => randomUUID()),
-		// Reference to the cached channel
+		// Reference to the cached channel (unified)
 		channelId: text('channel_id')
 			.notNull()
-			.references(() => stalkerChannels.id, { onDelete: 'cascade' }),
-		// Original Stalker channel ID (for API matching during sync)
-		stalkerChannelId: text('stalker_channel_id').notNull(),
-		// Reference to the source account
+			.references(() => livetvChannels.id, { onDelete: 'cascade' }),
+		// External channel ID from provider (stalker_id, xstream_id, or tvg-id)
+		externalChannelId: text('external_channel_id').notNull(),
+		// Reference to the source account (unified)
 		accountId: text('account_id')
 			.notNull()
-			.references(() => stalkerAccounts.id, { onDelete: 'cascade' }),
+			.references(() => livetvAccounts.id, { onDelete: 'cascade' }),
+		// Provider type for this EPG data
+		providerType: text('provider_type').$type<LiveTvProviderType>().notNull(),
 		// Program metadata
 		title: text('title').notNull(),
 		description: text('description'),
@@ -3137,7 +3140,7 @@ export const epgPrograms = sqliteTable(
 		// Unique constraint: one program per channel per start time per account
 		uniqueIndex('idx_epg_programs_unique').on(
 			table.accountId,
-			table.stalkerChannelId,
+			table.externalChannelId,
 			table.startTime
 		)
 	]
@@ -3147,7 +3150,238 @@ export type EpgProgramRecord = typeof epgPrograms.$inferSelect;
 export type NewEpgProgramRecord = typeof epgPrograms.$inferInsert;
 
 // ============================================================================
-// LIVE TV - RELATIONS
+// LIVE TV - UNIFIED PROVIDER ACCOUNTS (Multi-provider support: Stalker, XStream, M3U)
+// ============================================================================
+
+export const livetvProviderTypeEnum = ['stalker', 'xstream', 'm3u', 'iptvorg'] as const;
+export type LiveTvProviderType = (typeof livetvProviderTypeEnum)[number];
+
+/**
+ * Live TV Accounts - Unified provider accounts supporting multiple IPTV protocols.
+ * Replaces stalker_accounts with a generic structure that supports Stalker Portal,
+ * XStream Codes, and M3U playlist sources.
+ */
+export const livetvAccounts = sqliteTable(
+	'livetv_accounts',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => randomUUID()),
+		name: text('name').notNull(),
+		providerType: text('provider_type').$type<LiveTvProviderType>().notNull(),
+		enabled: integer('enabled', { mode: 'boolean' }).default(true),
+
+		// Legacy migration tracking (maps to old stalker_accounts.id if applicable)
+		legacyStalkerAccountId: text('legacy_stalker_account_id'),
+
+		// Stalker Portal specific config (stored as JSON)
+		stalkerConfig: text('stalker_config', { mode: 'json' }).$type<{
+			portalUrl: string;
+			macAddress: string;
+			serialNumber?: string;
+			deviceId?: string;
+			deviceId2?: string;
+			model?: string;
+			timezone?: string;
+			token?: string;
+			username?: string;
+			password?: string;
+			portalId?: string; // Reference to stalkerPortals.id
+			discoveredFromScan?: boolean;
+			streamUrlType?: 'direct' | 'create_link' | 'unknown';
+		}>(),
+
+		// XStream Codes specific config (stored as JSON)
+		xstreamConfig: text('xstream_config', { mode: 'json' }).$type<{
+			baseUrl: string;
+			username: string;
+			password: string;
+			authToken?: string;
+			tokenExpiry?: string;
+		}>(),
+
+		// M3U Playlist specific config (stored as JSON)
+		m3uConfig: text('m3u_config', { mode: 'json' }).$type<{
+			url?: string;
+			fileContent?: string; // For uploaded M3U files
+			epgUrl?: string; // Optional XMLTV EPG URL
+			refreshIntervalHours?: number;
+			lastRefreshAt?: string;
+			autoRefresh?: boolean;
+		}>(),
+
+		// IPTV-Org API specific config (stored as JSON)
+		iptvOrgConfig: text('iptv_org_config', { mode: 'json' }).$type<{
+			countries?: string[]; // ISO 3166-1 alpha-2 codes
+			categories?: string[];
+			languages?: string[]; // ISO 639-3 codes
+			lastSyncAt?: string;
+			autoSyncIntervalHours?: number;
+			preferredQuality?: string | null;
+		}>(),
+
+		// Common metadata fields
+		playbackLimit: integer('playback_limit'),
+		channelCount: integer('channel_count'),
+		categoryCount: integer('category_count'),
+		expiresAt: text('expires_at'),
+		serverTimezone: text('server_timezone'),
+
+		// Health tracking
+		lastTestedAt: text('last_tested_at'),
+		lastTestSuccess: integer('last_test_success', { mode: 'boolean' }),
+		lastTestError: text('last_test_error'),
+
+		// Sync tracking (channel sync)
+		lastSyncAt: text('last_sync_at'),
+		lastSyncError: text('last_sync_error'),
+		syncStatus: text('sync_status')
+			.$type<'never' | 'syncing' | 'success' | 'failed'>()
+			.default('never'),
+
+		// EPG tracking (separate from channel sync)
+		lastEpgSyncAt: text('last_epg_sync_at'),
+		lastEpgSyncError: text('last_epg_sync_error'),
+		epgProgramCount: integer('epg_program_count').default(0),
+		hasEpg: integer('has_epg', { mode: 'boolean' }),
+
+		// Timestamps
+		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
+		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
+	},
+	(table) => [
+		index('idx_livetv_accounts_enabled').on(table.enabled),
+		index('idx_livetv_accounts_type').on(table.providerType),
+		uniqueIndex('idx_livetv_accounts_legacy').on(table.legacyStalkerAccountId)
+	]
+);
+
+export type LivetvAccountRecord = typeof livetvAccounts.$inferSelect;
+export type NewLivetvAccountRecord = typeof livetvAccounts.$inferInsert;
+
+// ============================================================================
+// LIVE TV - UNIFIED CHANNELS (Multi-provider support)
+// ============================================================================
+
+/**
+ * Live TV Channels - Unified channel cache supporting all provider types.
+ * Replaces stalker_channels with a generic structure.
+ */
+export const livetvChannels = sqliteTable(
+	'livetv_channels',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => randomUUID()),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => livetvAccounts.id, { onDelete: 'cascade' }),
+		providerType: text('provider_type').$type<LiveTvProviderType>().notNull(),
+
+		// Legacy migration tracking (maps to old stalker_channels.id if applicable)
+		legacyStalkerChannelId: text('legacy_stalker_channel_id'),
+
+		// External provider ID (stalkerId for Stalker, streamId for XStream, tvg-id for M3U)
+		externalId: text('external_id').notNull(),
+
+		// Common channel fields
+		name: text('name').notNull(),
+		number: text('number'),
+		logo: text('logo'),
+
+		// Category reference (can be from provider-specific category table or generic)
+		categoryId: text('category_id'), // Generic category ID
+		providerCategoryId: text('provider_category_id'), // Provider's category ID
+
+		// Provider-specific data stored as JSON
+		stalkerData: text('stalker_data', { mode: 'json' }).$type<{
+			stalkerGenreId?: string;
+			cmd: string;
+			tvArchive: boolean;
+			archiveDuration: number;
+		}>(),
+
+		xstreamData: text('xstream_data', { mode: 'json' }).$type<{
+			streamId: string;
+			streamType: string;
+			directStreamUrl?: string;
+			containerExtension?: string;
+		}>(),
+
+		m3uData: text('m3u_data', { mode: 'json' }).$type<{
+			tvgId?: string;
+			tvgName?: string;
+			groupTitle?: string;
+			url: string;
+			tvgLogo?: string;
+			attributes?: Record<string, string>;
+		}>(),
+
+		// EPG mapping
+		epgId: text('epg_id'), // XMLTV EPG ID override
+
+		// Timestamps
+		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
+		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
+	},
+	(table) => [
+		index('idx_livetv_channels_account').on(table.accountId),
+		index('idx_livetv_channels_type').on(table.providerType),
+		index('idx_livetv_channels_external').on(table.externalId),
+		index('idx_livetv_channels_name').on(table.name),
+		uniqueIndex('idx_livetv_channels_unique').on(table.accountId, table.externalId)
+	]
+);
+
+export type LivetvChannelRecord = typeof livetvChannels.$inferSelect;
+export type NewLivetvChannelRecord = typeof livetvChannels.$inferInsert;
+
+// ============================================================================
+// LIVE TV - UNIFIED PROVIDER CATEGORIES
+// ============================================================================
+
+/**
+ * Live TV Provider Categories - Category cache for all provider types.
+ * Replaces stalker_categories with a generic structure.
+ */
+export const livetvCategories = sqliteTable(
+	'livetv_categories',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => randomUUID()),
+		accountId: text('account_id')
+			.notNull()
+			.references(() => livetvAccounts.id, { onDelete: 'cascade' }),
+		providerType: text('provider_type').$type<LiveTvProviderType>().notNull(),
+
+		// External provider ID
+		externalId: text('external_id').notNull(),
+
+		// Category info
+		title: text('title').notNull(),
+		alias: text('alias'),
+		censored: integer('censored', { mode: 'boolean' }).default(false),
+		channelCount: integer('channel_count').default(0),
+
+		// Provider-specific data
+		providerData: text('provider_data', { mode: 'json' }).$type<Record<string, unknown>>(),
+
+		// Timestamps
+		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
+		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
+	},
+	(table) => [
+		index('idx_livetv_categories_account').on(table.accountId),
+		uniqueIndex('idx_livetv_categories_unique').on(table.accountId, table.externalId)
+	]
+);
+
+export type LivetvCategoryRecord = typeof livetvCategories.$inferSelect;
+export type NewLivetvCategoryRecord = typeof livetvCategories.$inferInsert;
+
+// ============================================================================
+// RELATIONS (Updated for new unified tables)
 // ============================================================================
 
 /**
@@ -3158,16 +3392,16 @@ export const channelCategoriesRelations = relations(channelCategories, ({ many }
 }));
 
 /**
- * Channel Lineup Items Relations
+ * Channel Lineup Items Relations (Updated to use livetv_accounts and livetv_channels)
  */
 export const channelLineupItemsRelations = relations(channelLineupItems, ({ one, many }) => ({
-	account: one(stalkerAccounts, {
+	account: one(livetvAccounts, {
 		fields: [channelLineupItems.accountId],
-		references: [stalkerAccounts.id]
+		references: [livetvAccounts.id]
 	}),
-	channel: one(stalkerChannels, {
+	channel: one(livetvChannels, {
 		fields: [channelLineupItems.channelId],
-		references: [stalkerChannels.id]
+		references: [livetvChannels.id]
 	}),
 	category: one(channelCategories, {
 		fields: [channelLineupItems.categoryId],
@@ -3177,33 +3411,71 @@ export const channelLineupItemsRelations = relations(channelLineupItems, ({ one,
 }));
 
 /**
- * Channel Lineup Backups Relations
+ * Channel Lineup Backups Relations (Updated to use livetv_accounts and livetv_channels)
  */
 export const channelLineupBackupsRelations = relations(channelLineupBackups, ({ one }) => ({
 	lineupItem: one(channelLineupItems, {
 		fields: [channelLineupBackups.lineupItemId],
 		references: [channelLineupItems.id]
 	}),
-	account: one(stalkerAccounts, {
+	account: one(livetvAccounts, {
 		fields: [channelLineupBackups.accountId],
-		references: [stalkerAccounts.id]
+		references: [livetvAccounts.id]
 	}),
-	channel: one(stalkerChannels, {
+	channel: one(livetvChannels, {
 		fields: [channelLineupBackups.channelId],
-		references: [stalkerChannels.id]
+		references: [livetvChannels.id]
 	})
 }));
 
 /**
- * EPG Programs Relations
+ * EPG Programs Relations (Updated to use livetv_channels and livetv_accounts)
  */
 export const epgProgramsRelations = relations(epgPrograms, ({ one }) => ({
-	channel: one(stalkerChannels, {
+	channel: one(livetvChannels, {
 		fields: [epgPrograms.channelId],
-		references: [stalkerChannels.id]
+		references: [livetvChannels.id]
 	}),
-	account: one(stalkerAccounts, {
+	account: one(livetvAccounts, {
 		fields: [epgPrograms.accountId],
-		references: [stalkerAccounts.id]
+		references: [livetvAccounts.id]
 	})
+}));
+
+/**
+ * Live TV Accounts Relations
+ */
+export const livetvAccountsRelations = relations(livetvAccounts, ({ many }) => ({
+	channels: many(livetvChannels),
+	categories: many(livetvCategories),
+	lineupItems: many(channelLineupItems),
+	backups: many(channelLineupBackups),
+	epgPrograms: many(epgPrograms)
+}));
+
+/**
+ * Live TV Channels Relations
+ */
+export const livetvChannelsRelations = relations(livetvChannels, ({ one, many }) => ({
+	account: one(livetvAccounts, {
+		fields: [livetvChannels.accountId],
+		references: [livetvAccounts.id]
+	}),
+	category: one(livetvCategories, {
+		fields: [livetvChannels.categoryId],
+		references: [livetvCategories.id]
+	}),
+	lineupItems: many(channelLineupItems),
+	epgPrograms: many(epgPrograms)
+}));
+
+/**
+ * Live TV Categories Relations
+ */
+export const livetvCategoriesRelations = relations(livetvCategories, ({ one, many }) => ({
+	account: one(livetvAccounts, {
+		fields: [livetvCategories.accountId],
+		references: [livetvAccounts.id]
+	}),
+	channels: many(livetvChannels)
 }));

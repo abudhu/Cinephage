@@ -6,15 +6,16 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getStalkerChannelService } from '$lib/server/livetv/stalker';
+import { getLiveTvChannelService } from '$lib/server/livetv/LiveTvChannelService';
 import type { ChannelQueryOptions } from '$lib/types/livetv';
 
 export const GET: RequestHandler = async ({ url }) => {
-	const channelService = getStalkerChannelService();
+	const channelService = getLiveTvChannelService();
 
 	// Parse query parameters
 	const accountIdsParam = url.searchParams.get('accountIds');
 	const categoryIdsParam = url.searchParams.get('categoryIds');
+	const providerTypesParam = url.searchParams.get('providerTypes');
 	const search = url.searchParams.get('search');
 	const hasArchiveParam = url.searchParams.get('hasArchive');
 	const pageParam = url.searchParams.get('page');
@@ -30,6 +31,12 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	if (categoryIdsParam) {
 		options.categoryIds = categoryIdsParam.split(',').filter(Boolean);
+	}
+
+	if (providerTypesParam) {
+		options.providerTypes = providerTypesParam
+			.split(',')
+			.filter(Boolean) as ChannelQueryOptions['providerTypes'];
 	}
 
 	if (search) {

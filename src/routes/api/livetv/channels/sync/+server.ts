@@ -6,11 +6,11 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getStalkerChannelSyncService, getStalkerAccountManager } from '$lib/server/livetv/stalker';
+import { getLiveTvChannelService, getLiveTvAccountManager } from '$lib/server/livetv';
 
 export const POST: RequestHandler = async ({ request }) => {
-	const syncService = getStalkerChannelSyncService();
-	const accountManager = getStalkerAccountManager();
+	const channelService = getLiveTvChannelService();
+	const accountManager = getLiveTvAccountManager();
 
 	try {
 		const body = await request.json().catch(() => ({}));
@@ -18,14 +18,15 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// If no specific accounts, sync all enabled accounts
 		if (!accountIds || accountIds.length === 0) {
-			const results = await syncService.syncAllAccounts();
+			const accounts = await accountManager.getAccounts();
+			const results: Record<string, unknown> = {};
 
-			const resultsObj: Record<string, unknown> = {};
-			for (const [id, result] of results) {
-				resultsObj[id] = result;
+			for (const account of accounts.filter((a: (typeof accounts)[0]) => a.enabled)) {
+				const result = await channelService.syncChannels(account.id);
+				results[account.id] = result;
 			}
 
-			return json({ results: resultsObj });
+			return json({ results });
 		}
 
 		// Sync specific accounts
@@ -42,7 +43,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				continue;
 			}
 
-			const result = await syncService.syncAccount(accountId);
+			const result = await channelService.syncChannels(accountId);
 			results[accountId] = result;
 		}
 

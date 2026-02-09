@@ -1,27 +1,74 @@
 /**
  * Live TV Accounts API
  *
- * GET  /api/livetv/accounts - List all Stalker accounts
- * POST /api/livetv/accounts - Create a new Stalker account
+ * GET  /api/livetv/accounts - List all Live TV accounts
+ * POST /api/livetv/accounts - Create a new Live TV account
  */
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getStalkerAccountManager } from '$lib/server/livetv/stalker';
-import { stalkerAccountCreateSchema } from '$lib/validation/schemas';
+import { getLiveTvAccountManager } from '$lib/server/livetv/LiveTvAccountManager';
 import { logger } from '$lib/logging';
+import { z } from 'zod';
+
+// Validation schema for creating Live TV accounts (supports all provider types)
+const liveTvAccountCreateSchema = z.object({
+	name: z.string().min(1).max(100),
+	providerType: z.enum(['stalker', 'xstream', 'm3u', 'iptvorg']),
+	enabled: z.boolean().optional(),
+	// Stalker-specific config
+	stalkerConfig: z
+		.object({
+			portalUrl: z.string().url(),
+			macAddress: z.string().min(1),
+			serialNumber: z.string().optional(),
+			deviceId: z.string().optional(),
+			deviceId2: z.string().optional(),
+			model: z.string().optional(),
+			timezone: z.string().optional(),
+			username: z.string().optional(),
+			password: z.string().optional()
+		})
+		.optional(),
+	// XStream-specific config
+	xstreamConfig: z
+		.object({
+			baseUrl: z.string().url(),
+			username: z.string().min(1),
+			password: z.string().min(1)
+		})
+		.optional(),
+	// M3U-specific config
+	m3uConfig: z
+		.object({
+			url: z.string().url().optional(),
+			fileContent: z.string().optional(),
+			epgUrl: z.string().url().optional(),
+			refreshIntervalHours: z.number().min(1).max(168).optional(),
+			autoRefresh: z.boolean().optional()
+		})
+		.optional(),
+	// IPTV-Org-specific config
+	iptvOrgConfig: z
+		.object({
+			countries: z.array(z.string()).optional(),
+			categories: z.array(z.string()).optional(),
+			languages: z.array(z.string()).optional()
+		})
+		.optional()
+});
 
 /**
- * List all Stalker accounts
+ * List all Live TV accounts
  */
 export const GET: RequestHandler = async () => {
 	try {
-		const manager = getStalkerAccountManager();
+		const manager = getLiveTvAccountManager();
 		const accounts = await manager.getAccounts();
 
 		return json(accounts);
 	} catch (error) {
-		logger.error('[API] Failed to list Stalker accounts', {
+		logger.error('[API] Failed to list Live TV accounts', {
 			error: error instanceof Error ? error.message : String(error)
 		});
 
@@ -30,14 +77,14 @@ export const GET: RequestHandler = async () => {
 };
 
 /**
- * Create a new Stalker account
+ * Create a new Live TV account
  */
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const body = await request.json();
 
 		// Validate input
-		const parsed = stalkerAccountCreateSchema.safeParse(body);
+		const parsed = liveTvAccountCreateSchema.safeParse(body);
 		if (!parsed.success) {
 			return json(
 				{
@@ -48,7 +95,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		const manager = getStalkerAccountManager();
+		const manager = getLiveTvAccountManager();
 
 		// Check if testFirst is explicitly set to false
 		const testFirst = body.testFirst !== false;
@@ -59,7 +106,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 
-		logger.error('[API] Failed to create Stalker account', { error: message });
+		logger.error('[API] Failed to create Live TV account', { error: message });
 
 		// Connection test failures return specific error
 		if (message.includes('Connection test failed')) {
@@ -68,10 +115,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Unique constraint violation
 		if (message.includes('UNIQUE constraint failed')) {
-			return json(
-				{ error: 'An account with this portal URL and MAC address already exists' },
-				{ status: 409 }
-			);
+			return json({ error: 'An account with this configuration already exists' }, { status: 409 });
 		}
 
 		return json({ error: 'Failed to create account' }, { status: 500 });

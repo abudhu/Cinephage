@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { X, Loader2, XCircle, CheckCircle2, Tv } from 'lucide-svelte';
 	import ModalWrapper from '$lib/components/ui/modal/ModalWrapper.svelte';
-	import type { StalkerAccount, StalkerAccountTestResult } from '$lib/types/livetv';
+	import type { LiveTvAccount, LiveTvAccountTestResult } from '$lib/types/livetv';
 
 	interface StalkerAccountFormData {
 		name: string;
@@ -13,13 +13,13 @@
 	interface Props {
 		open: boolean;
 		mode: 'add' | 'edit';
-		account?: StalkerAccount | null;
+		account?: LiveTvAccount | null;
 		saving: boolean;
 		error?: string | null;
 		onClose: () => void;
 		onSave: (data: StalkerAccountFormData) => void;
 		onDelete?: () => void;
-		onTest: (data: { portalUrl: string; macAddress: string }) => Promise<StalkerAccountTestResult>;
+		onTest: (data: { portalUrl: string; macAddress: string }) => Promise<LiveTvAccountTestResult>;
 	}
 
 	let {
@@ -42,7 +42,7 @@
 
 	// UI state
 	let testing = $state(false);
-	let testResult = $state<StalkerAccountTestResult | null>(null);
+	let testResult = $state<LiveTvAccountTestResult | null>(null);
 
 	// Derived
 	const modalTitle = $derived(mode === 'add' ? 'Add Stalker Account' : 'Edit Stalker Account');
@@ -66,8 +66,8 @@
 	$effect(() => {
 		if (open) {
 			name = account?.name ?? '';
-			portalUrl = account?.portalUrl ?? '';
-			macAddress = account?.macAddress ?? '';
+			portalUrl = account?.stalkerConfig?.portalUrl ?? '';
+			macAddress = account?.stalkerConfig?.macAddress ?? '';
 			enabled = account?.enabled ?? true;
 			testResult = null;
 		}

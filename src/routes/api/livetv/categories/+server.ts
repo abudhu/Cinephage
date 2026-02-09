@@ -6,17 +6,16 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getStalkerChannelService } from '$lib/server/livetv/stalker';
+import { getLiveTvChannelService } from '$lib/server/livetv/LiveTvChannelService';
 
 export const GET: RequestHandler = async ({ url }) => {
-	const channelService = getStalkerChannelService();
+	const channelService = getLiveTvChannelService();
 
 	// Parse query parameters
-	const accountIdsParam = url.searchParams.get('accountIds');
-	const accountIds = accountIdsParam ? accountIdsParam.split(',').filter(Boolean) : undefined;
+	const accountIdParam = url.searchParams.get('accountId');
 
 	try {
-		const categories = await channelService.getCategories(accountIds);
+		const categories = await channelService.getCategories(accountIdParam || undefined);
 		return json({ categories });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';

@@ -3,8 +3,11 @@
  */
 
 // Account management
-export { default as StalkerAccountTable } from './StalkerAccountTable.svelte';
+export { default as LiveTvAccountTable } from './LiveTvAccountTable.svelte';
 export { default as StalkerAccountModal } from './StalkerAccountModal.svelte';
+export { default as XstreamAccountModal } from './XstreamAccountModal.svelte';
+export { default as M3uAccountModal } from './M3uAccountModal.svelte';
+export { default as ProviderTypeSelector } from './ProviderTypeSelector.svelte';
 
 // Portal scanning
 export { default as PortalScanModal } from './PortalScanModal.svelte';
