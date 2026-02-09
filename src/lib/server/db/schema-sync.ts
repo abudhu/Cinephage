@@ -3640,7 +3640,6 @@ const MIGRATIONS: MigrationDefinition[] = [
 			const indexesToDrop = [
 				'idx_livetv_accounts_enabled',
 				'idx_livetv_accounts_type',
-				'idx_livetv_accounts_legacy',
 				'idx_livetv_channels_account',
 				'idx_livetv_channels_type',
 				'idx_livetv_channels_external',
@@ -3681,8 +3680,7 @@ const MIGRATIONS: MigrationDefinition[] = [
 					"name" text NOT NULL,
 					"provider_type" text NOT NULL,
 					"enabled" integer DEFAULT 1,
-					"legacy_stalker_account_id" text,
-				"stalker_config" text,
+			"stalker_config" text,
 				"xstream_config" text,
 				"m3u_config" text,
 				"iptv_org_config" text,
@@ -3716,7 +3714,6 @@ const MIGRATIONS: MigrationDefinition[] = [
 					"id" text PRIMARY KEY NOT NULL,
 					"account_id" text NOT NULL,
 					"provider_type" text NOT NULL,
-					"legacy_stalker_channel_id" text,
 					"external_id" text NOT NULL,
 					"name" text NOT NULL,
 					"number" text,
@@ -3768,11 +3765,7 @@ const MIGRATIONS: MigrationDefinition[] = [
 					`CREATE INDEX IF NOT EXISTS "idx_livetv_accounts_type" ON "livetv_accounts" ("provider_type")`
 				)
 				.run();
-			sqlite
-				.prepare(
-					`CREATE UNIQUE INDEX IF NOT EXISTS "idx_livetv_accounts_legacy" ON "livetv_accounts" ("legacy_stalker_account_id")`
-				)
-				.run();
+
 			sqlite
 				.prepare(
 					`CREATE INDEX IF NOT EXISTS "idx_livetv_channels_account" ON "livetv_channels" ("account_id")`

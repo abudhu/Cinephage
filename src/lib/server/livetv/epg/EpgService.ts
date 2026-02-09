@@ -15,7 +15,9 @@ import {
 	epgPrograms,
 	type EpgProgramRecord
 } from '$lib/server/db/schema';
-import { logger } from '$lib/logging';
+import { createChildLogger } from '$lib/logging';
+
+const logger = createChildLogger({ module: 'EpgService' });
 import { getProvider } from '../providers';
 import type {
 	EpgProgram,
@@ -116,7 +118,7 @@ export class EpgService {
 		}
 
 		try {
-			logger.info('[EpgService] Starting EPG sync', {
+			logger.info('Starting EPG sync', {
 				accountId,
 				name: account.name,
 				providerType: account.providerType
@@ -158,7 +160,7 @@ export class EpgService {
 			const epgPrograms = await provider.fetchEpg!(liveTvAccount, now, endTime);
 
 			if (epgPrograms.length === 0) {
-				logger.info('[EpgService] No EPG data returned from provider', {
+				logger.info('No EPG data returned from provider', {
 					accountId,
 					name: account.name,
 					providerType: account.providerType
@@ -197,7 +199,7 @@ export class EpgService {
 			// Process and store EPG data
 			const result = await this.storeEpgData(accountId, epgPrograms, channelMap);
 
-			logger.info('[EpgService] EPG sync complete', {
+			logger.info('EPG sync complete', {
 				accountId,
 				name: account.name,
 				providerType: account.providerType,
@@ -223,7 +225,7 @@ export class EpgService {
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
-			logger.error('[EpgService] EPG sync failed', {
+			logger.error('EPG sync failed', {
 				accountId,
 				name: account.name,
 				providerType: account.providerType,
@@ -256,7 +258,7 @@ export class EpgService {
 	async syncAll(): Promise<EpgSyncResult[]> {
 		const accounts = await db.select().from(livetvAccounts).where(eq(livetvAccounts.enabled, true));
 
-		logger.info('[EpgService] Starting EPG sync for all accounts', {
+		logger.info('Starting EPG sync for all accounts', {
 			accountCount: accounts.length
 		});
 
@@ -274,7 +276,7 @@ export class EpgService {
 		const totalUpdated = results.reduce((sum, r) => sum + r.programsUpdated, 0);
 		const successful = results.filter((r) => r.success).length;
 
-		logger.info('[EpgService] EPG sync complete for all accounts', {
+		logger.info('EPG sync complete for all accounts', {
 			accounts: accounts.length,
 			successful,
 			totalAdded,
@@ -555,7 +557,7 @@ export class EpgService {
 		const deleted = db.delete(epgPrograms).where(lte(epgPrograms.endTime, cutoffTime)).run();
 
 		if (deleted.changes > 0) {
-			logger.info('[EpgService] Cleaned up old EPG programs', {
+			logger.info('Cleaned up old EPG programs', {
 				deleted: deleted.changes,
 				cutoffTime
 			});

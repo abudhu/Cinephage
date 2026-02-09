@@ -19,20 +19,29 @@ export const POST: RequestHandler = async ({ params }) => {
 		const result = await manager.testAccount(params.id);
 
 		if (!result.success && result.error === 'Account not found') {
-			return json({ error: 'Account not found' }, { status: 404 });
+			return json(
+				{
+					success: false,
+					error: 'Account not found'
+				},
+				{ status: 404 }
+			);
 		}
 
-		return json(result);
-	} catch (error) {
-		logger.error('[API] Failed to test Live TV account', {
-			id: params.id,
-			error: error instanceof Error ? error.message : String(error)
+		return json({
+			success: true,
+			result
 		});
+	} catch (error) {
+		logger.error(
+			'[API] Failed to test Live TV account',
+			error instanceof Error ? error : undefined
+		);
 
 		return json(
 			{
 				success: false,
-				error: 'Failed to test account'
+				error: error instanceof Error ? error.message : 'Failed to test account'
 			},
 			{ status: 500 }
 		);

@@ -665,4 +665,15 @@ class ChannelLineupService {
 	}
 }
 
-export const channelLineupService = new ChannelLineupService();
+// Singleton instance
+let lineupServiceInstance: ChannelLineupService | null = null;
+
+export function getChannelLineupService(): ChannelLineupService {
+	if (!lineupServiceInstance) {
+		lineupServiceInstance = new ChannelLineupService();
+	}
+	return lineupServiceInstance;
+}
+
+// Backward compatibility export
+export const channelLineupService = getChannelLineupService();

@@ -17,6 +17,7 @@ import {
 	epgPrograms
 } from '$lib/server/db/schema';
 import { eq, like, sql, and, gt } from 'drizzle-orm';
+import { logger } from '$lib/logging';
 
 interface ChannelWithEpgInfo {
 	id: string;
@@ -120,6 +121,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		}));
 
 		return json({
+			success: true,
 			items: response,
 			total,
 			page,
@@ -127,7 +129,16 @@ export const GET: RequestHandler = async ({ url }) => {
 			totalPages: Math.ceil(total / pageSize)
 		});
 	} catch (error) {
-		console.error('[API] Failed to get channels with EPG:', error);
-		return json({ error: 'Failed to get channels with EPG' }, { status: 500 });
+		logger.error(
+			'[API] Failed to get channels with EPG',
+			error instanceof Error ? error : undefined
+		);
+		return json(
+			{
+				success: false,
+				error: error instanceof Error ? error.message : 'Failed to get channels with EPG'
+			},
+			{ status: 500 }
+		);
 	}
 };

@@ -186,8 +186,8 @@
 		try {
 			const response = await fetch('/api/livetv/accounts');
 			if (response.ok) {
-				const data: LiveTvAccount[] = await response.json();
-				accounts = data.filter((a) => a.enabled);
+				const result = await response.json();
+				accounts = result.accounts?.filter((a: LiveTvAccount) => a.enabled) || [];
 			}
 		} catch (e) {
 			console.error('Failed to load accounts:', e);
@@ -230,10 +230,11 @@
 			const response = await fetch(`/api/livetv/channels?${params}`);
 			if (!response.ok) throw new Error('Failed to load channels');
 
-			const data: PaginatedChannelResponse = await response.json();
-			channels = data.items;
-			total = data.total;
-			totalPages = data.totalPages;
+			const result = await response.json();
+			if (!result.success) throw new Error(result.error || 'Failed to load channels');
+			channels = result.channels || [];
+			total = result.total || 0;
+			totalPages = result.totalPages || 1;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load channels';
 			channels = [] as CachedChannel[];

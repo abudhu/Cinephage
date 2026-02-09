@@ -14,8 +14,10 @@ import {
 	type LivetvChannelRecord,
 	type LivetvAccountRecord
 } from '$lib/server/db/schema';
-import { logger } from '$lib/logging';
+import { createChildLogger } from '$lib/logging';
 import { getProvider } from './providers';
+import type { BackgroundService, ServiceStatus } from '$lib/server/services/background-service.js';
+import { NotFoundError } from '$lib/errors';
 import type {
 	LiveTvChannel,
 	LiveTvCategory,
@@ -26,6 +28,8 @@ import type {
 	AccountSyncStatus,
 	ChannelSyncResult
 } from '$lib/types/livetv';
+
+const logger = createChildLogger({ module: 'LiveTvChannelService' });
 
 /**
  * Convert database record to LiveTvChannel type
@@ -79,7 +83,53 @@ function recordToCachedChannel(
 	};
 }
 
-export class LiveTvChannelService {
+export class LiveTvChannelService implements BackgroundService {
+	readonly name = 'LiveTvChannelService';
+	private _status: ServiceStatus = 'pending';
+	private _error?: Error;
+
+	get status(): ServiceStatus {
+		return this._status;
+	}
+
+	get error(): Error | undefined {
+		return this._error;
+	}
+
+	/**
+	 * Start the service (non-blocking)
+	 * Implements BackgroundService.start()
+	 */
+	start(): void {
+		if (this._status === 'ready' || this._status === 'starting') {
+			logger.debug('LiveTvChannelService already running');
+			return;
+		}
+
+		this._status = 'starting';
+		logger.info('Starting LiveTvChannelService');
+
+		// Service initialization is synchronous for this service
+		setImmediate(() => {
+			this._status = 'ready';
+			logger.info('LiveTvChannelService ready');
+		});
+	}
+
+	/**
+	 * Stop the service gracefully
+	 * Implements BackgroundService.stop()
+	 */
+	async stop(): Promise<void> {
+		if (this._status === 'pending') {
+			return;
+		}
+
+		logger.info('Stopping LiveTvChannelService');
+		this._status = 'pending';
+		logger.info('LiveTvChannelService stopped');
+	}
+
 	/**
 	 * Get channels with optional filtering
 	 */
@@ -107,7 +157,9 @@ export class LiveTvChannelService {
 			conditions.push(inArray(livetvChannels.providerType, providerTypes));
 		}
 		if (search) {
-			conditions.push(like(livetvChannels.name, `%${search}%`));
+			// Sanitize search input to escape SQL LIKE special characters
+			const sanitizedSearch = search.replace(/[%_\\]/g, '\\$&');
+			conditions.push(like(livetvChannels.name, `%${sanitizedSearch}%`));
 		}
 
 		// Get total count with same conditions (using inner join with accounts)
@@ -333,7 +385,7 @@ export class LiveTvChannelService {
 			.then((rows) => rows[0]);
 
 		if (!account) {
-			throw new Error(`Account not found: ${accountId}`);
+			throw new NotFoundError('Account', accountId);
 		}
 
 		const provider = getProvider(account.providerType);

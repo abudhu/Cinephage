@@ -2716,87 +2716,6 @@ export type StalkerPortalRecord = typeof stalkerPortals.$inferSelect;
 export type NewStalkerPortalRecord = typeof stalkerPortals.$inferInsert;
 
 // ============================================================================
-// LIVE TV - STALKER PORTAL ACCOUNTS
-// ============================================================================
-
-/**
- * Stalker Portal Accounts - IPTV provider accounts using Stalker/Ministra protocol.
- * Each account connects to a portal server using a MAC address for authentication.
- */
-export const stalkerAccounts = sqliteTable(
-	'stalker_accounts',
-	{
-		id: text('id')
-			.primaryKey()
-			.$defaultFn(() => randomUUID()),
-		name: text('name').notNull(),
-		portalUrl: text('portal_url').notNull(),
-		macAddress: text('mac_address').notNull(),
-		enabled: integer('enabled', { mode: 'boolean' }).default(true),
-
-		// Optional link to saved portal (for scanner-discovered accounts)
-		portalId: text('portal_id').references(() => stalkerPortals.id, { onDelete: 'set null' }),
-		discoveredFromScan: integer('discovered_from_scan', { mode: 'boolean' }).default(false),
-
-		// Device parameters for STB emulation (required for Stalker protocol)
-		serialNumber: text('serial_number'),
-		deviceId: text('device_id'),
-		deviceId2: text('device_id2'),
-		model: text('model').default('MAG254'),
-		timezone: text('timezone').default('Europe/London'),
-		token: text('token'), // Cached session token
-
-		// Optional credentials (alternative to device ID auth)
-		username: text('username'),
-		password: text('password'),
-
-		// Metadata from portal (fetched on test/save)
-		playbackLimit: integer('playback_limit'),
-		channelCount: integer('channel_count'),
-		categoryCount: integer('category_count'),
-		expiresAt: text('expires_at'),
-		serverTimezone: text('server_timezone'),
-
-		// Health tracking
-		lastTestedAt: text('last_tested_at'),
-		lastTestSuccess: integer('last_test_success', { mode: 'boolean' }),
-		lastTestError: text('last_test_error'),
-
-		// Sync tracking (channel sync)
-		lastSyncAt: text('last_sync_at'),
-		lastSyncError: text('last_sync_error'),
-		syncStatus: text('sync_status')
-			.$type<'never' | 'syncing' | 'success' | 'failed'>()
-			.default('never'),
-
-		// EPG tracking (separate from channel sync)
-		lastEpgSyncAt: text('last_epg_sync_at'),
-		lastEpgSyncError: text('last_epg_sync_error'),
-		epgProgramCount: integer('epg_program_count').default(0),
-		hasEpg: integer('has_epg', { mode: 'boolean' }), // null=unknown, true/false after first sync
-
-		// Stream URL resolution method (detected during sync)
-		// 'direct' = URLs from get_all_channels work directly (most portals)
-		// 'create_link' = Need to call create_link API to resolve localhost templates
-		// 'unknown' = Not yet detected
-		streamUrlType: text('stream_url_type')
-			.$type<'direct' | 'create_link' | 'unknown'>()
-			.default('unknown'),
-
-		// Timestamps
-		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
-		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
-	},
-	(table) => [
-		index('idx_stalker_accounts_enabled').on(table.enabled),
-		uniqueIndex('idx_stalker_accounts_portal_mac').on(table.portalUrl, table.macAddress)
-	]
-);
-
-export type StalkerAccountRecord = typeof stalkerAccounts.$inferSelect;
-export type NewStalkerAccountRecord = typeof stalkerAccounts.$inferInsert;
-
-// ============================================================================
 // LIVE TV - PORTAL SCAN RESULTS
 // ============================================================================
 
@@ -2886,86 +2805,6 @@ export const portalScanHistory = sqliteTable(
 
 export type PortalScanHistoryRecord = typeof portalScanHistory.$inferSelect;
 export type NewPortalScanHistoryRecord = typeof portalScanHistory.$inferInsert;
-
-// ============================================================================
-// LIVE TV - STALKER PORTAL CATEGORIES (CACHED)
-// ============================================================================
-
-/**
- * Stalker Categories - Cached channel categories/genres from portal.
- * Synced from the portal and stored locally for fast filtering.
- */
-export const stalkerCategories = sqliteTable(
-	'stalker_categories',
-	{
-		id: text('id')
-			.primaryKey()
-			.$defaultFn(() => randomUUID()),
-		accountId: text('account_id')
-			.notNull()
-			.references(() => stalkerAccounts.id, { onDelete: 'cascade' }),
-		stalkerId: text('stalker_id').notNull(), // Original ID from portal
-		title: text('title').notNull(),
-		alias: text('alias'),
-		censored: integer('censored', { mode: 'boolean' }).default(false),
-		channelCount: integer('channel_count').default(0),
-
-		// Timestamps
-		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
-		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
-	},
-	(table) => [
-		index('idx_stalker_categories_account').on(table.accountId),
-		uniqueIndex('idx_stalker_categories_unique').on(table.accountId, table.stalkerId)
-	]
-);
-
-export type StalkerCategoryRecord = typeof stalkerCategories.$inferSelect;
-export type NewStalkerCategoryRecord = typeof stalkerCategories.$inferInsert;
-
-// ============================================================================
-// LIVE TV - STALKER PORTAL CHANNELS (CACHED)
-// ============================================================================
-
-/**
- * Stalker Channels - Cached channel data from portal.
- * Synced from the portal and stored locally for fast browsing and filtering.
- */
-export const stalkerChannels = sqliteTable(
-	'stalker_channels',
-	{
-		id: text('id')
-			.primaryKey()
-			.$defaultFn(() => randomUUID()),
-		accountId: text('account_id')
-			.notNull()
-			.references(() => stalkerAccounts.id, { onDelete: 'cascade' }),
-		stalkerId: text('stalker_id').notNull(), // Original ID from portal
-		name: text('name').notNull(),
-		number: text('number'), // Channel number (string for flexibility)
-		logo: text('logo'), // Logo URL
-		categoryId: text('category_id').references(() => stalkerCategories.id, {
-			onDelete: 'set null'
-		}),
-		stalkerGenreId: text('stalker_genre_id'), // Original genre ID from portal (for reference)
-		cmd: text('cmd').notNull(), // Stream command (required for playback)
-		tvArchive: integer('tv_archive', { mode: 'boolean' }).default(false),
-		archiveDuration: integer('archive_duration').default(0), // Days of archive
-
-		// Timestamps
-		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
-		updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
-	},
-	(table) => [
-		index('idx_stalker_channels_account').on(table.accountId),
-		index('idx_stalker_channels_category').on(table.categoryId),
-		index('idx_stalker_channels_name').on(table.name),
-		uniqueIndex('idx_stalker_channels_unique').on(table.accountId, table.stalkerId)
-	]
-);
-
-export type StalkerChannelRecord = typeof stalkerChannels.$inferSelect;
-export type NewStalkerChannelRecord = typeof stalkerChannels.$inferInsert;
 
 // ============================================================================
 // LIVE TV - USER CHANNEL CATEGORIES
@@ -3171,9 +3010,6 @@ export const livetvAccounts = sqliteTable(
 		providerType: text('provider_type').$type<LiveTvProviderType>().notNull(),
 		enabled: integer('enabled', { mode: 'boolean' }).default(true),
 
-		// Legacy migration tracking (maps to old stalker_accounts.id if applicable)
-		legacyStalkerAccountId: text('legacy_stalker_account_id'),
-
 		// Stalker Portal specific config (stored as JSON)
 		stalkerConfig: text('stalker_config', { mode: 'json' }).$type<{
 			portalUrl: string;
@@ -3235,9 +3071,9 @@ export const livetvAccounts = sqliteTable(
 		// Sync tracking (channel sync)
 		lastSyncAt: text('last_sync_at'),
 		lastSyncError: text('last_sync_error'),
-		syncStatus: text('sync_status')
-			.$type<'never' | 'syncing' | 'success' | 'failed'>()
-			.default('never'),
+		syncStatus: text('sync_status', { enum: ['never', 'syncing', 'success', 'failed'] }).default(
+			'never'
+		),
 
 		// EPG tracking (separate from channel sync)
 		lastEpgSyncAt: text('last_epg_sync_at'),
@@ -3251,8 +3087,7 @@ export const livetvAccounts = sqliteTable(
 	},
 	(table) => [
 		index('idx_livetv_accounts_enabled').on(table.enabled),
-		index('idx_livetv_accounts_type').on(table.providerType),
-		uniqueIndex('idx_livetv_accounts_legacy').on(table.legacyStalkerAccountId)
+		index('idx_livetv_accounts_type').on(table.providerType)
 	]
 );
 
@@ -3277,9 +3112,6 @@ export const livetvChannels = sqliteTable(
 			.notNull()
 			.references(() => livetvAccounts.id, { onDelete: 'cascade' }),
 		providerType: text('provider_type').$type<LiveTvProviderType>().notNull(),
-
-		// Legacy migration tracking (maps to old stalker_channels.id if applicable)
-		legacyStalkerChannelId: text('legacy_stalker_channel_id'),
 
 		// External provider ID (stalkerId for Stalker, streamId for XStream, tvg-id for M3U)
 		externalId: text('external_id').notNull(),
@@ -3478,4 +3310,32 @@ export const livetvCategoriesRelations = relations(livetvCategories, ({ one, man
 		references: [livetvAccounts.id]
 	}),
 	channels: many(livetvChannels)
+}));
+
+/**
+ * Stalker Portals Relations
+ */
+export const stalkerPortalsRelations = relations(stalkerPortals, ({ many }) => ({
+	scanResults: many(portalScanResults),
+	scanHistory: many(portalScanHistory)
+}));
+
+/**
+ * Portal Scan Results Relations
+ */
+export const portalScanResultsRelations = relations(portalScanResults, ({ one }) => ({
+	portal: one(stalkerPortals, {
+		fields: [portalScanResults.portalId],
+		references: [stalkerPortals.id]
+	})
+}));
+
+/**
+ * Portal Scan History Relations
+ */
+export const portalScanHistoryRelations = relations(portalScanHistory, ({ one }) => ({
+	portal: one(stalkerPortals, {
+		fields: [portalScanHistory.portalId],
+		references: [stalkerPortals.id]
+	})
 }));

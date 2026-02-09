@@ -4,10 +4,8 @@
 
 // Account management
 export { default as LiveTvAccountTable } from './LiveTvAccountTable.svelte';
-export { default as StalkerAccountModal } from './StalkerAccountModal.svelte';
-export { default as XstreamAccountModal } from './XstreamAccountModal.svelte';
-export { default as M3uAccountModal } from './M3uAccountModal.svelte';
-export { default as ProviderTypeSelector } from './ProviderTypeSelector.svelte';
+export { default as LiveTvAccountModal } from './LiveTvAccountModal.svelte';
+export { default as LiveTvProviderPicker } from './LiveTvProviderPicker.svelte';
 
 // Portal scanning
 export { default as PortalScanModal } from './PortalScanModal.svelte';
@@ -30,3 +28,6 @@ export { default as EpgSourcePickerModal } from './EpgSourcePickerModal.svelte';
 export { default as EpgCoverageTable } from './EpgCoverageTable.svelte';
 export { default as EpgGuideGrid } from './EpgGuideGrid.svelte';
 export { default as ChannelScheduleModal } from './ChannelScheduleModal.svelte';
+
+// IPTV-Org
+export { default as IptvOrgSelector } from './IptvOrgSelector.svelte';

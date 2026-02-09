@@ -9,7 +9,5 @@
 export {
 	LiveTvStreamService,
 	getLiveTvStreamService,
-	// Backward compatibility alias
-	getLiveTvStreamService as getStalkerStreamService,
 	type FetchStreamResult
 } from './LiveTvStreamService';

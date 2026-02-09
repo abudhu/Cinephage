@@ -9,6 +9,7 @@ import type { RequestHandler } from './$types';
 import { getProvider } from '$lib/server/livetv/providers';
 import { logger } from '$lib/logging';
 import { z } from 'zod';
+import { ValidationError } from '$lib/errors';
 import type { LiveTvAccount } from '$lib/types/livetv';
 
 // Validation schema for testing Live TV accounts
@@ -65,14 +66,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Validate input
 		const parsed = liveTvAccountTestSchema.safeParse(body);
 		if (!parsed.success) {
-			return json(
-				{
-					success: false,
-					error: 'Validation failed',
-					details: parsed.error.flatten().fieldErrors
-				},
-				{ status: 400 }
-			);
+			throw new ValidationError('Validation failed', {
+				details: parsed.error.flatten()
+			});
 		}
 
 		// Build temporary account for testing
@@ -107,16 +103,33 @@ export const POST: RequestHandler = async ({ request }) => {
 		const provider = getProvider(parsed.data.providerType);
 		const result = await provider.testConnection(tempAccount);
 
-		return json(result);
-	} catch (error) {
-		logger.error('[API] Failed to test Live TV account configuration', {
-			error: error instanceof Error ? error.message : String(error)
+		return json({
+			success: true,
+			result
 		});
+	} catch (error) {
+		logger.error(
+			'[API] Failed to test Live TV account configuration',
+			error instanceof Error ? error : undefined
+		);
+
+		// Validation errors
+		if (error instanceof ValidationError) {
+			return json(
+				{
+					success: false,
+					error: error.message,
+					code: error.code,
+					context: error.context
+				},
+				{ status: error.statusCode }
+			);
+		}
 
 		return json(
 			{
 				success: false,
-				error: 'Failed to test account configuration'
+				error: error instanceof Error ? error.message : 'Failed to test account configuration'
 			},
 			{ status: 500 }
 		);

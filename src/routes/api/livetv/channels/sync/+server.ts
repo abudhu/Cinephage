@@ -7,6 +7,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getLiveTvChannelService, getLiveTvAccountManager } from '$lib/server/livetv';
+import { logger } from '$lib/logging';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const channelService = getLiveTvChannelService();
@@ -26,7 +27,10 @@ export const POST: RequestHandler = async ({ request }) => {
 				results[account.id] = result;
 			}
 
-			return json({ results });
+			return json({
+				success: true,
+				results
+			});
 		}
 
 		// Sync specific accounts
@@ -47,9 +51,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			results[accountId] = result;
 		}
 
-		return json({ results });
+		return json({
+			success: true,
+			results
+		});
 	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Unknown error';
-		return json({ error: message }, { status: 500 });
+		logger.error('[API] Failed to sync channels', error instanceof Error ? error : undefined);
+		return json(
+			{
+				success: false,
+				error: error instanceof Error ? error.message : 'Failed to sync channels'
+			},
+			{ status: 500 }
+		);
 	}
 };

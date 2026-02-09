@@ -8,9 +8,11 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '$lib/server/db';
 import { livetvAccounts, type LivetvAccountRecord } from '$lib/server/db/schema';
-import { logger } from '$lib/logging';
+import { createChildLogger } from '$lib/logging';
 import { randomUUID } from 'crypto';
 import { getProvider, getProviderForAccount } from './providers';
+import type { BackgroundService, ServiceStatus } from '$lib/server/services/background-service.js';
+import { ValidationError, NotFoundError, ExternalServiceError } from '$lib/errors';
 import type {
 	LiveTvAccount,
 	LiveTvAccountInput,
@@ -22,6 +24,8 @@ import type {
 	M3uConfig,
 	IptvOrgConfig
 } from '$lib/types/livetv';
+
+const logger = createChildLogger({ module: 'LiveTvAccountManager' });
 
 /**
  * Generate a random serial number (like MAG devices use)
@@ -86,7 +90,53 @@ function recordToAccount(record: LivetvAccountRecord): LiveTvAccount {
 	};
 }
 
-export class LiveTvAccountManager {
+export class LiveTvAccountManager implements BackgroundService {
+	readonly name = 'LiveTvAccountManager';
+	private _status: ServiceStatus = 'pending';
+	private _error?: Error;
+
+	get status(): ServiceStatus {
+		return this._status;
+	}
+
+	get error(): Error | undefined {
+		return this._error;
+	}
+
+	/**
+	 * Start the service (non-blocking)
+	 * Implements BackgroundService.start()
+	 */
+	start(): void {
+		if (this._status === 'ready' || this._status === 'starting') {
+			logger.debug('LiveTvAccountManager already running');
+			return;
+		}
+
+		this._status = 'starting';
+		logger.info('Starting LiveTvAccountManager');
+
+		// Service initialization is synchronous for this manager
+		setImmediate(() => {
+			this._status = 'ready';
+			logger.info('LiveTvAccountManager ready');
+		});
+	}
+
+	/**
+	 * Stop the service gracefully
+	 * Implements BackgroundService.stop()
+	 */
+	async stop(): Promise<void> {
+		if (this._status === 'pending') {
+			return;
+		}
+
+		logger.info('Stopping LiveTvAccountManager');
+		this._status = 'pending';
+		logger.info('LiveTvAccountManager stopped');
+	}
+
 	/**
 	 * Get all Live TV accounts
 	 */
@@ -208,7 +258,11 @@ export class LiveTvAccountManager {
 			testResult = await provider.testConnection(accountForTest);
 
 			if (!testResult.success) {
-				throw new Error(`Connection test failed: ${testResult.error}`);
+				throw new ExternalServiceError(
+					input.providerType,
+					testResult.error || 'Connection test failed',
+					502
+				);
 			}
 		}
 
@@ -240,7 +294,7 @@ export class LiveTvAccountManager {
 
 		const [record] = await db.insert(livetvAccounts).values(insertData).returning();
 
-		logger.info('[LiveTvAccountManager] Created account', {
+		logger.info('Created account', {
 			id: record.id,
 			name: record.name,
 			providerType: record.providerType
@@ -312,7 +366,7 @@ export class LiveTvAccountManager {
 			return null;
 		}
 
-		logger.info('[LiveTvAccountManager] Updated account', { id, name: record.name });
+		logger.info('Updated account', { id, name: record.name });
 		return recordToAccount(record);
 	}
 
@@ -324,7 +378,7 @@ export class LiveTvAccountManager {
 		const deleted = (result.changes ?? 0) > 0;
 
 		if (deleted) {
-			logger.info('[LiveTvAccountManager] Deleted account', { id });
+			logger.info('Deleted account', { id });
 		}
 
 		return deleted;
@@ -394,7 +448,7 @@ export class LiveTvAccountManager {
 			return null;
 		}
 
-		logger.info('[LiveTvAccountManager] Account ' + (enabled ? 'enabled' : 'disabled'), {
+		logger.info('Account ' + (enabled ? 'enabled' : 'disabled'), {
 			id,
 			name: record.name
 		});
@@ -454,6 +508,3 @@ export function getLiveTvAccountManager(): LiveTvAccountManager {
 	}
 	return accountManagerInstance;
 }
-
-// Re-export for backward compatibility (deprecated)
-export { getLiveTvAccountManager as getStalkerAccountManager };

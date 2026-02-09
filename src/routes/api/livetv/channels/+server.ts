@@ -7,6 +7,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getLiveTvChannelService } from '$lib/server/livetv/LiveTvChannelService';
+import { logger } from '$lib/logging';
 import type { ChannelQueryOptions } from '$lib/types/livetv';
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -71,9 +72,22 @@ export const GET: RequestHandler = async ({ url }) => {
 
 	try {
 		const result = await channelService.getChannels(options);
-		return json(result);
+		return json({
+			success: true,
+			channels: result.items,
+			total: result.total,
+			page: result.page,
+			pageSize: result.pageSize,
+			totalPages: result.totalPages
+		});
 	} catch (error) {
-		const message = error instanceof Error ? error.message : 'Unknown error';
-		return json({ error: message }, { status: 500 });
+		logger.error('[API] Failed to get channels', error instanceof Error ? error : undefined);
+		return json(
+			{
+				success: false,
+				error: error instanceof Error ? error.message : 'Failed to get channels'
+			},
+			{ status: 500 }
+		);
 	}
 };

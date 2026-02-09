@@ -6,14 +6,18 @@
  * Supports Stalker Portal, XStream Codes, and M3U playlist sources.
  */
 
-import { logger } from '$lib/logging';
+import { createChildLogger } from '$lib/logging';
 import { channelLineupService } from '$lib/server/livetv/lineup/ChannelLineupService';
 import { getProvider, getProviderForAccount } from '$lib/server/livetv/providers';
 import { db } from '$lib/server/db';
 import { livetvAccounts, type LivetvAccountRecord } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { isUrlSafe } from '$lib/server/http/ssrf-protection';
+import type { BackgroundService, ServiceStatus } from '$lib/server/services/background-service.js';
+import { NotFoundError, ValidationError, ExternalServiceError } from '$lib/errors';
 import type { FetchStreamResult, StreamError, LiveTvAccount } from '$lib/types/livetv';
+
+const logger = createChildLogger({ module: 'LiveTvStreamService' });
 
 /**
  * Stream source info for failover
@@ -25,10 +29,56 @@ interface StreamSource {
 	priority: number;
 }
 
-export class LiveTvStreamService {
+export class LiveTvStreamService implements BackgroundService {
+	readonly name = 'LiveTvStreamService';
+	private _status: ServiceStatus = 'pending';
+	private _error?: Error;
+
 	// Metrics
 	private totalResolutions = 0;
 	private failovers = 0;
+
+	get status(): ServiceStatus {
+		return this._status;
+	}
+
+	get error(): Error | undefined {
+		return this._error;
+	}
+
+	/**
+	 * Start the service (non-blocking)
+	 * Implements BackgroundService.start()
+	 */
+	start(): void {
+		if (this._status === 'ready' || this._status === 'starting') {
+			logger.debug('LiveTvStreamService already running');
+			return;
+		}
+
+		this._status = 'starting';
+		logger.info('Starting LiveTvStreamService');
+
+		// Service initialization is synchronous for this service
+		setImmediate(() => {
+			this._status = 'ready';
+			logger.info('LiveTvStreamService ready');
+		});
+	}
+
+	/**
+	 * Stop the service gracefully
+	 * Implements BackgroundService.stop()
+	 */
+	async stop(): Promise<void> {
+		if (this._status === 'pending') {
+			return;
+		}
+
+		logger.info('Stopping LiveTvStreamService');
+		this._status = 'pending';
+		logger.info('LiveTvStreamService stopped');
+	}
 
 	/**
 	 * Fetch stream - resolves URL and fetches from appropriate provider.
@@ -72,12 +122,9 @@ export class LiveTvStreamService {
 				// If we used a backup, log it
 				if (source.priority > 0) {
 					this.failovers++;
-					logger.info('[LiveTvStreamService] Used backup source', {
-						lineupItemId,
-						primaryAccountId: sources[0].accountId,
+					logger.info('Used backup source', {
 						backupAccountId: source.accountId,
-						backupPriority: source.priority,
-						providerType: source.providerType
+						failoverCount: this.failovers
 					});
 				}
 
@@ -86,14 +133,10 @@ export class LiveTvStreamService {
 				const err = error instanceof Error ? error : new Error(String(error));
 				errors.push({ source, error: err });
 
-				logger.warn('[LiveTvStreamService] Source failed', {
-					lineupItemId,
+				logger.warn('Source failed', {
 					accountId: source.accountId,
 					channelId: source.channelId,
-					providerType: source.providerType,
-					priority: source.priority,
-					error: err.message,
-					remainingSources: sources.length - errors.length
+					error: err.message
 				});
 			}
 		}
@@ -131,7 +174,7 @@ export class LiveTvStreamService {
 		}
 
 		if (!accountRecord.enabled) {
-			throw new Error(`Account is disabled: ${accountId}`);
+			throw new ValidationError(`Account is disabled: ${accountId}`);
 		}
 
 		const account = this.recordToAccount(accountRecord);
@@ -149,7 +192,11 @@ export class LiveTvStreamService {
 		const resolutionResult = await provider.resolveStreamUrl(account, item.channel);
 
 		if (!resolutionResult.success || !resolutionResult.url) {
-			throw new Error(resolutionResult.error || 'Failed to resolve stream URL');
+			throw new ExternalServiceError(
+				providerType,
+				resolutionResult.error || 'Failed to resolve stream URL',
+				502
+			);
 		}
 
 		const streamUrl = resolutionResult.url;
@@ -158,21 +205,15 @@ export class LiveTvStreamService {
 		// SSRF protection: validate resolved URL before fetching
 		const safetyCheck = isUrlSafe(streamUrl);
 		if (!safetyCheck.safe) {
-			logger.warn('[LiveTvStreamService] Blocked unsafe stream URL', {
-				lineupItemId,
-				accountId,
-				providerType,
-				reason: safetyCheck.reason
+			logger.warn('Blocked unsafe stream URL', {
+				url: streamUrl.substring(0, 100)
 			});
-			throw new Error(`Stream URL blocked: ${safetyCheck.reason}`);
+			throw new ValidationError(`Stream URL blocked: ${safetyCheck.reason}`);
 		}
 
-		logger.info('[LiveTvStreamService] Fetching stream', {
-			lineupItemId,
-			accountId,
-			providerType,
-			streamUrl,
-			type
+		logger.info('Fetching stream', {
+			url: streamUrl.substring(0, 100),
+			providerType
 		});
 
 		const fetchStart = Date.now();
@@ -185,7 +226,7 @@ export class LiveTvStreamService {
 			...resolutionResult.headers // Include provider-specific headers (cookies, auth, etc.)
 		};
 
-		logger.debug('[LiveTvStreamService] Request headers', {
+		logger.debug('Request headers', {
 			lineupItemId,
 			headers: Object.keys(requestHeaders)
 		});
@@ -199,25 +240,23 @@ export class LiveTvStreamService {
 		const fetchMs = Date.now() - fetchStart;
 
 		if (!response.ok) {
-			logger.error('[LiveTvStreamService] Stream fetch failed', {
-				lineupItemId,
-				accountId,
-				streamUrl,
+			logger.error('Stream fetch failed', {
 				status: response.status,
-				statusText: response.statusText,
-				fetchMs
+				statusText: response.statusText
 			});
-			throw new Error(`Upstream error: ${response.status}`);
+			throw new ExternalServiceError(
+				providerType,
+				`Upstream error: ${response.status}`,
+				response.status
+			);
 		}
 
 		// Note: Content-Length: 0 is valid for live streams (continuous data)
 		// Live streams don't have a fixed size, so we skip this check
 		const contentLength = response.headers.get('content-length');
 		if (contentLength && contentLength !== '0') {
-			logger.debug('[LiveTvStreamService] Stream content length', {
-				lineupItemId,
-				contentLength,
-				fetchMs
+			logger.debug('Stream content length', {
+				contentLength: response.headers.get('content-length')
 			});
 		}
 
@@ -225,21 +264,19 @@ export class LiveTvStreamService {
 		if (type === 'hls' || streamUrl.toLowerCase().includes('.m3u8')) {
 			const text = await response.text();
 			if (!text.includes('#EXTM3U')) {
-				logger.warn('[LiveTvStreamService] Invalid HLS playlist', {
-					lineupItemId,
-					accountId,
-					streamUrl,
-					contentPreview: text.substring(0, 100)
+				logger.warn('Invalid HLS playlist: missing #EXTM3U', {
+					lineupItemId
 				});
-				throw new Error('Invalid HLS playlist (missing #EXTM3U)');
+				throw new ExternalServiceError(providerType, 'Invalid HLS playlist (missing #EXTM3U)', 502);
 			}
 
-			logger.debug('[LiveTvStreamService] HLS stream validated', {
-				lineupItemId,
-				accountId,
-				type: 'hls',
-				fetchMs,
-				playlistLength: text.length
+			// Count segments in playlist
+			const segmentCount = text
+				.split('\n')
+				.filter((line) => line.trim().startsWith('#EXTINF')).length;
+			logger.debug('HLS stream validated', {
+				segmentCount,
+				lineupItemId
 			});
 
 			return {
@@ -260,22 +297,21 @@ export class LiveTvStreamService {
 		// For direct streams (TS, MP4, etc.), read first chunk to verify data flows
 		const reader = response.body?.getReader();
 		if (!reader) {
-			throw new Error('Stream has no readable body');
+			throw new ExternalServiceError(providerType, 'Stream has no readable body', 502);
 		}
 
 		const firstChunk = await reader.read();
 		if (firstChunk.done || !firstChunk.value || firstChunk.value.length === 0) {
 			reader.releaseLock();
-			logger.warn('[LiveTvStreamService] Stream returned no data', {
+			logger.warn('Stream returned no data', {
 				lineupItemId,
 				accountId,
-				streamUrl,
 				fetchMs
 			});
-			throw new Error('Stream returned no data');
+			throw new ExternalServiceError(providerType, 'Stream returned no data', 502);
 		}
 
-		logger.debug('[LiveTvStreamService] Direct stream validated', {
+		logger.debug('Direct stream validated', {
 			lineupItemId,
 			accountId,
 			type,
@@ -383,7 +419,7 @@ export class LiveTvStreamService {
 	 * Shutdown service - cleanup resources
 	 */
 	shutdown(): void {
-		logger.info('[LiveTvStreamService] Service shutdown');
+		logger.info('Service shutdown');
 	}
 }
 
@@ -400,6 +436,4 @@ export function getLiveTvStreamService(): LiveTvStreamService {
 	return streamServiceInstance;
 }
 
-// Re-export for backward compatibility
-export { getLiveTvStreamService as getStalkerStreamService };
 export type { FetchStreamResult };

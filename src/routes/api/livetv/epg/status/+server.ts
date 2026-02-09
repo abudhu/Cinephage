@@ -10,6 +10,7 @@ import { getEpgService, getEpgScheduler } from '$lib/server/livetv/epg';
 import { db } from '$lib/server/db';
 import { livetvAccounts } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
+import { logger } from '$lib/logging';
 
 export const GET: RequestHandler = async () => {
 	try {
@@ -49,6 +50,7 @@ export const GET: RequestHandler = async () => {
 		}));
 
 		return json({
+			success: true,
 			isEnabled: true,
 			isSyncing: schedulerStatus.isSyncing,
 			syncIntervalHours: schedulerStatus.syncIntervalHours,
@@ -59,7 +61,13 @@ export const GET: RequestHandler = async () => {
 			accounts: accountStatuses
 		});
 	} catch (error) {
-		console.error('[API] Failed to get EPG status:', error);
-		return json({ error: 'Failed to get EPG status' }, { status: 500 });
+		logger.error('[API] Failed to get EPG status', error instanceof Error ? error : undefined);
+		return json(
+			{
+				success: false,
+				error: error instanceof Error ? error.message : 'Failed to get EPG status'
+			},
+			{ status: 500 }
+		);
 	}
 };

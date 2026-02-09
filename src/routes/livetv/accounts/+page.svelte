@@ -1,20 +1,8 @@
 <script lang="ts">
 	import { Plus, RefreshCw, Loader2, Search } from 'lucide-svelte';
-	import {
-		LiveTvAccountTable,
-		StalkerAccountModal,
-		XstreamAccountModal,
-		M3uAccountModal,
-		ProviderTypeSelector,
-		PortalScanModal,
-		PortalScanProgress,
-		ScanResultsTable
-	} from '$lib/components/livetv';
-	import type {
-		LiveTvAccount,
-		LiveTvAccountTestResult,
-		LiveTvProviderType
-	} from '$lib/types/livetv';
+	import { LiveTvAccountTable, LiveTvAccountModal } from '$lib/components/livetv';
+	import type { LiveTvAccount, LiveTvAccountTestResult } from '$lib/types/livetv';
+	import type { FormData, TestConfig } from '$lib/components/livetv/LiveTvAccountModal.svelte';
 	import { onMount } from 'svelte';
 
 	// State
@@ -23,10 +11,6 @@
 	let refreshing = $state(false);
 	let saving = $state(false);
 	let error = $state<string | null>(null);
-
-	// Provider type selector state
-	let selectedProviderType = $state<LiveTvProviderType>('stalker');
-	let showProviderSelector = $state(false);
 
 	// Modal state
 	let modalOpen = $state(false);
@@ -37,22 +21,8 @@
 	// Testing state
 	let testingId = $state<string | null>(null);
 
-	// Determine modal type based on selected provider or editing account
-	const effectiveProviderType = $derived.by(() => {
-		if (editingAccount) {
-			return editingAccount.providerType;
-		}
-		return selectedProviderType;
-	});
-
 	// Syncing state
 	let syncingId = $state<string | null>(null);
-
-	// Scanner state
-	type ScannerView = 'none' | 'modal' | 'progress' | 'results';
-	let scannerView = $state<ScannerView>('none');
-	let activeWorkerId = $state<string | null>(null);
-	let activePortalId = $state<string | null>(null);
 
 	// Load accounts on mount
 	onMount(() => {
@@ -68,7 +38,8 @@
 			if (!response.ok) {
 				throw new Error('Failed to load accounts');
 			}
-			accounts = await response.json();
+			const data = await response.json();
+			accounts = data.accounts;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load accounts';
 		} finally {
@@ -86,8 +57,6 @@
 		modalMode = 'add';
 		editingAccount = null;
 		modalError = null;
-		selectedProviderType = 'stalker'; // Default to stalker
-		showProviderSelector = true;
 		modalOpen = true;
 	}
 
@@ -95,8 +64,6 @@
 		modalMode = 'edit';
 		editingAccount = account;
 		modalError = null;
-		selectedProviderType = account.providerType;
-		showProviderSelector = false; // Don't show selector when editing
 		modalOpen = true;
 	}
 
@@ -104,15 +71,9 @@
 		modalOpen = false;
 		editingAccount = null;
 		modalError = null;
-		showProviderSelector = false;
 	}
 
-	async function handleSaveStalker(data: {
-		name: string;
-		portalUrl: string;
-		macAddress: string;
-		enabled: boolean;
-	}) {
+	async function handleSave(data: FormData) {
 		saving = true;
 		modalError = null;
 
@@ -121,105 +82,52 @@
 				modalMode === 'add' ? '/api/livetv/accounts' : `/api/livetv/accounts/${editingAccount!.id}`;
 			const method = modalMode === 'add' ? 'POST' : 'PUT';
 
-			const response = await fetch(url, {
-				method,
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					...data,
-					providerType: 'stalker',
-					stalkerConfig: {
+			// Build request body based on provider type
+			const body: Record<string, unknown> = {
+				name: data.name,
+				providerType: data.providerType,
+				enabled: data.enabled
+			};
+
+			switch (data.providerType) {
+				case 'stalker':
+					body.stalkerConfig = {
 						portalUrl: data.portalUrl,
-						macAddress: data.macAddress
-					}
-				})
-			});
-
-			if (!response.ok) {
-				const result = await response.json();
-				throw new Error(result.error || 'Failed to save account');
-			}
-
-			await loadAccounts();
-			closeModal();
-		} catch (e) {
-			modalError = e instanceof Error ? e.message : 'Failed to save account';
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function handleSaveXstream(data: {
-		name: string;
-		baseUrl: string;
-		username: string;
-		password: string;
-		enabled: boolean;
-	}) {
-		saving = true;
-		modalError = null;
-
-		try {
-			const url =
-				modalMode === 'add' ? '/api/livetv/accounts' : `/api/livetv/accounts/${editingAccount!.id}`;
-			const method = modalMode === 'add' ? 'POST' : 'PUT';
-
-			const response = await fetch(url, {
-				method,
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					...data,
-					providerType: 'xstream',
-					xstreamConfig: {
+						macAddress: data.macAddress,
+						epgUrl: data.epgUrl || undefined
+					};
+					break;
+				case 'xstream':
+					body.xstreamConfig = {
 						baseUrl: data.baseUrl,
 						username: data.username,
-						password: data.password
+						password: data.password,
+						epgUrl: data.epgUrl || undefined
+					};
+					break;
+				case 'm3u':
+					if (data.selectedCountries?.length) {
+						// IPTV-Org mode
+						body.providerType = 'iptvorg';
+						body.iptvOrgConfig = {
+							countries: data.selectedCountries
+						};
+					} else {
+						// Regular M3U mode
+						body.m3uConfig = {
+							url: data.url || undefined,
+							fileContent: data.fileContent || undefined,
+							epgUrl: data.epgUrl || undefined,
+							autoRefresh: data.autoRefresh
+						};
 					}
-				})
-			});
-
-			if (!response.ok) {
-				const result = await response.json();
-				throw new Error(result.error || 'Failed to save account');
+					break;
 			}
-
-			await loadAccounts();
-			closeModal();
-		} catch (e) {
-			modalError = e instanceof Error ? e.message : 'Failed to save account';
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function handleSaveM3u(data: {
-		name: string;
-		url: string;
-		fileContent: string;
-		epgUrl: string;
-		autoRefresh: boolean;
-		enabled: boolean;
-	}) {
-		saving = true;
-		modalError = null;
-
-		try {
-			const url =
-				modalMode === 'add' ? '/api/livetv/accounts' : `/api/livetv/accounts/${editingAccount!.id}`;
-			const method = modalMode === 'add' ? 'POST' : 'PUT';
 
 			const response = await fetch(url, {
 				method,
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					...data,
-					providerType: 'm3u',
-					m3uConfig: {
-						url: data.url || undefined,
-						fileContent: data.fileContent || undefined,
-						epgUrl: data.epgUrl || undefined,
-						autoRefresh: data.autoRefresh
-					}
-				})
+				body: JSON.stringify(body)
 			});
 
 			if (!response.ok) {
@@ -294,7 +202,6 @@
 				throw new Error('Failed to test account');
 			}
 
-			// Reload to get updated test results
 			await loadAccounts();
 		} catch (e) {
 			console.error('Failed to test account:', e);
@@ -317,7 +224,6 @@
 				throw new Error('Failed to sync account');
 			}
 
-			// Reload to get updated sync results
 			await loadAccounts();
 		} catch (e) {
 			console.error('Failed to sync account:', e);
@@ -326,135 +232,48 @@
 		}
 	}
 
-	async function handleTestStalkerConfig(config: {
-		portalUrl: string;
-		macAddress: string;
-	}): Promise<LiveTvAccountTestResult> {
-		const response = await fetch('/api/livetv/accounts/test', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				providerType: 'stalker',
-				stalkerConfig: config
-			})
-		});
+	async function handleTestConfig(config: TestConfig): Promise<LiveTvAccountTestResult> {
+		const body: Record<string, unknown> = {
+			providerType: config.providerType
+		};
 
-		return response.json();
-	}
-
-	async function handleTestXstreamConfig(config: {
-		baseUrl: string;
-		username: string;
-		password: string;
-	}): Promise<LiveTvAccountTestResult> {
-		const response = await fetch('/api/livetv/accounts/test', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				providerType: 'xstream',
-				xstreamConfig: config
-			})
-		});
-
-		return response.json();
-	}
-
-	async function handleTestM3uConfig(config: {
-		url?: string;
-		fileContent?: string;
-	}): Promise<LiveTvAccountTestResult> {
-		const response = await fetch('/api/livetv/accounts/test', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				providerType: 'm3u',
-				m3uConfig: config
-			})
-		});
-
-		return response.json();
-	}
-
-	async function handleSaveIptvOrg(data: { name: string; countries: string[]; enabled: boolean }) {
-		saving = true;
-		modalError = null;
-
-		try {
-			const url =
-				modalMode === 'add' ? '/api/livetv/accounts' : `/api/livetv/accounts/${editingAccount!.id}`;
-			const method = modalMode === 'add' ? 'POST' : 'PUT';
-
-			const response = await fetch(url, {
-				method,
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: data.name,
-					providerType: 'iptvorg',
-					enabled: data.enabled,
-					iptvOrgConfig: {
-						countries: data.countries
-					}
-				})
-			});
-
-			if (!response.ok) {
-				const result = await response.json();
-				throw new Error(result.error || 'Failed to save account');
-			}
-
-			await loadAccounts();
-			closeModal();
-		} catch (e) {
-			modalError = e instanceof Error ? e.message : 'Failed to save account';
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function handleTestIptvOrgConfig(config: {
-		countries: string[];
-	}): Promise<LiveTvAccountTestResult> {
-		const response = await fetch('/api/livetv/accounts/test', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				providerType: 'iptvorg',
-				iptvOrgConfig: {
-					countries: config.countries
+		switch (config.providerType) {
+			case 'stalker':
+				body.stalkerConfig = {
+					portalUrl: config.portalUrl,
+					macAddress: config.macAddress
+				};
+				break;
+			case 'xstream':
+				body.xstreamConfig = {
+					baseUrl: config.baseUrl,
+					username: config.username,
+					password: config.password
+				};
+				break;
+			case 'm3u':
+				if (config.countries) {
+					body.providerType = 'iptvorg';
+					body.iptvOrgConfig = {
+						countries: config.countries
+					};
+				} else {
+					body.m3uConfig = {
+						url: config.url,
+						fileContent: config.fileContent
+					};
 				}
-			})
+				break;
+		}
+
+		const response = await fetch('/api/livetv/accounts/test', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
 		});
 
 		return response.json();
 	}
-
-	// Scanner functions
-	function openScanner() {
-		scannerView = 'modal';
-	}
-
-	function closeScanner() {
-		scannerView = 'none';
-		activeWorkerId = null;
-		activePortalId = null;
-	}
-
-	function handleScanStarted(workerId: string, portalId: string) {
-		activeWorkerId = workerId;
-		activePortalId = portalId;
-		scannerView = 'progress';
-	}
-
-	function handleScanComplete() {
-		scannerView = 'results';
-	}
-
-	function handleAccountsCreated() {
-		loadAccounts();
-	}
-
-	// Check if there are any Stalker accounts (to show scanner button)
-	const hasStalkerAccounts = $derived(accounts.some((a) => a.providerType === 'stalker'));
 </script>
 
 <svelte:head>
@@ -481,12 +300,6 @@
 					<RefreshCw class="h-4 w-4" />
 				{/if}
 			</button>
-			{#if hasStalkerAccounts}
-				<button class="btn btn-ghost btn-sm" onclick={openScanner}>
-					<Search class="h-4 w-4" />
-					Scan for Accounts
-				</button>
-			{/if}
 			<button class="btn btn-sm btn-primary" onclick={openAddModal}>
 				<Plus class="h-4 w-4" />
 				Add Account
@@ -521,102 +334,15 @@
 	{/if}
 </div>
 
-<!-- Provider Selector Modal (Add mode only) -->
-{#if modalOpen && showProviderSelector}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-		<div class="w-full max-w-lg rounded-lg bg-base-100 p-6 shadow-xl">
-			<h3 class="mb-4 text-xl font-bold">Select Account Type</h3>
-			<ProviderTypeSelector
-				selected={selectedProviderType}
-				onSelect={(type) => (selectedProviderType = type)}
-			/>
-			<div class="mt-6 flex justify-end gap-2">
-				<button class="btn btn-ghost" onclick={closeModal}>Cancel</button>
-				<button
-					class="btn btn-primary"
-					onclick={() => {
-						showProviderSelector = false;
-					}}
-				>
-					Continue
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Stalker Modal -->
-{#if modalOpen && !showProviderSelector && selectedProviderType === 'stalker'}
-	<StalkerAccountModal
-		open={modalOpen}
-		mode={modalMode}
-		account={editingAccount}
-		{saving}
-		error={modalError}
-		onClose={closeModal}
-		onSave={handleSaveStalker}
-		onDelete={handleDelete}
-		onTest={handleTestStalkerConfig}
-	/>
-{/if}
-
-<!-- XStream Modal -->
-{#if modalOpen && !showProviderSelector && selectedProviderType === 'xstream'}
-	<XstreamAccountModal
-		open={modalOpen}
-		mode={modalMode}
-		account={editingAccount}
-		{saving}
-		error={modalError}
-		onClose={closeModal}
-		onSave={handleSaveXstream}
-		onDelete={handleDelete}
-		onTest={handleTestXstreamConfig}
-	/>
-{/if}
-
-<!-- M3U Modal (handles both M3U and IPTV-Org) -->
-{#if modalOpen && !showProviderSelector && (effectiveProviderType === 'm3u' || effectiveProviderType === 'iptvorg')}
-	<M3uAccountModal
-		open={modalOpen}
-		mode={modalMode}
-		account={editingAccount}
-		{saving}
-		error={modalError}
-		onClose={closeModal}
-		onSave={handleSaveM3u}
-		onSaveIptvOrg={handleSaveIptvOrg}
-		onDelete={handleDelete}
-		onTest={handleTestM3uConfig}
-		onTestIptvOrg={handleTestIptvOrgConfig}
-	/>
-{/if}
-
-<!-- Scanner Modal -->
-<PortalScanModal
-	open={scannerView === 'modal'}
-	onClose={closeScanner}
-	onScanStarted={handleScanStarted}
+<!-- Account Modal -->
+<LiveTvAccountModal
+	open={modalOpen}
+	mode={modalMode}
+	account={editingAccount}
+	{saving}
+	error={modalError}
+	onClose={closeModal}
+	onSave={handleSave}
+	onDelete={handleDelete}
+	onTest={handleTestConfig}
 />
-
-<!-- Scanner Progress -->
-{#if scannerView === 'progress' && activeWorkerId}
-	<div class="mt-6">
-		<PortalScanProgress
-			workerId={activeWorkerId}
-			onClose={closeScanner}
-			onComplete={handleScanComplete}
-		/>
-	</div>
-{/if}
-
-<!-- Scan Results -->
-{#if scannerView === 'results' && activePortalId}
-	<div class="mt-6">
-		<ScanResultsTable
-			portalId={activePortalId}
-			onClose={closeScanner}
-			onAccountsCreated={handleAccountsCreated}
-		/>
-	</div>
-{/if}
