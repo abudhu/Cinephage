@@ -515,10 +515,20 @@
 				<SectionRow
 					title="Top Rated Movies"
 					items={data.sections.topRatedMovies}
-					link="/discover?type=movie&sort_by=vote_average.desc{excludeInLibrary
+					link="/discover?type=movie&top_rated=true{excludeInLibrary
 						? '&exclude_in_library=true'
 						: ''}"
 					endpoint="movie/top_rated"
+					onAddToLibrary={handleAddToLibrary}
+					{excludeInLibrary}
+				/>
+				<SectionRow
+					title="Top Rated TV Shows"
+					items={data.sections.topRatedTV}
+					link="/discover?type=tv&top_rated=true{excludeInLibrary
+						? '&exclude_in_library=true'
+						: ''}"
+					endpoint="tv/top_rated"
 					onAddToLibrary={handleAddToLibrary}
 					{excludeInLibrary}
 				/>
