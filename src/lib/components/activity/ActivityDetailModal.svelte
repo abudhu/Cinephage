@@ -6,6 +6,7 @@
 		CheckCircle2,
 		XCircle,
 		Loader2,
+		PauseCircle,
 		AlertCircle,
 		Minus,
 		Clapperboard,
@@ -20,6 +21,7 @@
 		Folder
 	} from 'lucide-svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { createFocusTrap, lockBodyScroll } from '$lib/utils/focus';
 
 	interface Props {
 		activity: UnifiedActivity | null;
@@ -40,12 +42,17 @@
 
 	let activeTab = $state<'overview' | 'scoring' | 'replacement' | 'audit'>('overview');
 	let actionLoading = $state(false);
+	let modalRef = $state<HTMLElement | null>(null);
+	let contentRef = $state<HTMLElement | null>(null);
+	let cleanupFocusTrap: (() => void) | null = null;
+	let cleanupScrollLock: (() => void) | null = null;
 
 	// Status config
 	const statusConfig = {
 		imported: { label: 'Imported', variant: 'badge-success', icon: CheckCircle2 },
 		streaming: { label: 'Streaming', variant: 'badge-info', icon: CheckCircle2 },
 		downloading: { label: 'Downloading', variant: 'badge-info', icon: Loader2 },
+		paused: { label: 'Paused', variant: 'badge-warning', icon: PauseCircle },
 		failed: { label: 'Failed', variant: 'badge-error', icon: XCircle },
 		rejected: { label: 'Rejected', variant: 'badge-warning', icon: AlertCircle },
 		removed: { label: 'Removed', variant: 'badge-ghost', icon: XCircle },
@@ -135,28 +142,112 @@
 		if (diff < 0) return { text: `${diff}`, color: 'text-error' };
 		return { text: '0', color: 'text-base-content/60' };
 	}
+
+	function getResolutionBadge(activity: UnifiedActivity): string | null {
+		const rawResolution = activity.quality?.resolution?.trim();
+		if (rawResolution && rawResolution.toLowerCase() !== 'unknown') {
+			return rawResolution;
+		}
+
+		const isCinephageLibraryStream =
+			activity.protocol === 'streaming' &&
+			(activity.indexerName?.toLowerCase().includes('cinephage library') ?? false);
+		if (isCinephageLibraryStream) {
+			return 'Auto';
+		}
+
+		return null;
+	}
+
+	function isTypingTarget(target: EventTarget | null): boolean {
+		const element = target instanceof HTMLElement ? target : null;
+		if (!element) return false;
+		const tagName = element.tagName;
+		return (
+			tagName === 'INPUT' ||
+			tagName === 'TEXTAREA' ||
+			tagName === 'SELECT' ||
+			element.isContentEditable ||
+			element.closest('[contenteditable="true"]') !== null
+		);
+	}
+
+	function handleModalKeydown(e: KeyboardEvent) {
+		if (!activity) return;
+
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			onClose();
+			return;
+		}
+
+		if (!contentRef || isTypingTarget(e.target)) return;
+
+		const pageStep = Math.max(Math.floor(contentRef.clientHeight * 0.9), 120);
+
+		if (e.key === ' ') {
+			e.preventDefault();
+			contentRef.scrollBy({ top: e.shiftKey ? -pageStep : pageStep, behavior: 'smooth' });
+			return;
+		}
+
+		if (e.key === 'PageDown') {
+			e.preventDefault();
+			contentRef.scrollBy({ top: pageStep, behavior: 'smooth' });
+			return;
+		}
+
+		if (e.key === 'PageUp') {
+			e.preventDefault();
+			contentRef.scrollBy({ top: -pageStep, behavior: 'smooth' });
+			return;
+		}
+
+		if (e.key === 'Home') {
+			e.preventDefault();
+			contentRef.scrollTo({ top: 0, behavior: 'smooth' });
+			return;
+		}
+
+		if (e.key === 'End') {
+			e.preventDefault();
+			contentRef.scrollTo({ top: contentRef.scrollHeight, behavior: 'smooth' });
+		}
+	}
+
+	$effect(() => {
+		if (activity && modalRef) {
+			cleanupScrollLock = lockBodyScroll();
+			cleanupFocusTrap = createFocusTrap(modalRef);
+		}
+
+		return () => {
+			if (cleanupFocusTrap) {
+				cleanupFocusTrap();
+				cleanupFocusTrap = null;
+			}
+			if (cleanupScrollLock) {
+				cleanupScrollLock();
+				cleanupScrollLock = null;
+			}
+		};
+	});
 </script>
 
 {#if activity}
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 		onclick={onClose}
-		role="button"
-		tabindex="0"
-		onkeydown={(e) => {
-			if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-				e.preventDefault();
-				onClose();
-			}
-		}}
+		role="presentation"
 	>
 		<div
+			bind:this={modalRef}
 			class="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-base-100 shadow-2xl"
 			onclick={(e) => e.stopPropagation()}
 			role="dialog"
 			aria-modal="true"
 			tabindex="0"
-			onkeydown={(e) => e.stopPropagation()}
+			onkeydown={handleModalKeydown}
 		>
 			<!-- Header -->
 			<div class="border-b border-base-200 bg-base-100 p-6">
@@ -212,7 +303,7 @@
 								<Pause class="h-4 w-4" />
 								Pause
 							</button>
-						{:else}
+						{:else if activity.status === 'paused'}
 							<button class="btn btn-ghost btn-sm" onclick={handleResume} disabled={actionLoading}>
 								<Play class="h-4 w-4" />
 								Resume
@@ -275,7 +366,7 @@
 			</div>
 
 			<!-- Content -->
-			<div class="max-h-[50vh] overflow-y-auto p-6">
+			<div bind:this={contentRef} class="max-h-[50vh] overflow-y-auto p-6">
 				{#if loading}
 					<div class="flex items-center justify-center py-12">
 						<Loader2 class="h-8 w-8 animate-spin" />
@@ -292,7 +383,9 @@
 								</div>
 								<div class="space-y-1">
 									<span class="text-sm text-base-content/60">Status</span>
-									<p class="font-medium">{activity.status}</p>
+									<p class="font-medium">
+										{statusConfig[activity.status]?.label ?? activity.status}
+									</p>
 								</div>
 								<div class="space-y-1">
 									<span class="text-sm text-base-content/60">Size</span>
@@ -317,8 +410,8 @@
 								<div>
 									<span class="text-sm text-base-content/60">Quality</span>
 									<div class="mt-1 flex flex-wrap gap-2">
-										{#if activity.quality.resolution}
-											<span class="badge badge-outline">{activity.quality.resolution}</span>
+										{#if getResolutionBadge(activity)}
+											<span class="badge badge-outline">{getResolutionBadge(activity)}</span>
 										{/if}
 										{#if activity.quality.source}
 											<span class="badge badge-outline">{activity.quality.source}</span>
@@ -370,7 +463,9 @@
 														{formatRelativeTime(event.timestamp)}
 													</span>
 												</div>
-												{#if event.details}
+												{#if event.details && (!activity.statusReason || event.details
+															.trim()
+															.toLowerCase() !== activity.statusReason.trim().toLowerCase())}
 													<span class="text-sm text-base-content/60">{event.details}</span>
 												{/if}
 											</div>

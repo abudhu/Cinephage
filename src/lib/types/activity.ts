@@ -12,6 +12,7 @@ export type ActivityStatus =
 	| 'imported' // Successfully imported to library
 	| 'streaming' // Streaming source (no download)
 	| 'downloading' // Currently downloading
+	| 'paused' // Download paused
 	| 'failed' // Download or import failed
 	| 'rejected' // Release rejected (quality, blocklist, etc.)
 	| 'removed' // Removed from queue
@@ -70,6 +71,8 @@ export interface UnifiedActivity {
 	indexerId: string | null;
 	indexerName: string | null;
 	protocol: 'torrent' | 'usenet' | 'streaming' | null;
+	downloadClientId?: string | null;
+	downloadClientName?: string | null;
 
 	// Status
 	status: ActivityStatus;

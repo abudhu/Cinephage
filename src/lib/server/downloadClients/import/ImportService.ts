@@ -55,6 +55,7 @@ import {
 import { ImportWorker, workerManager } from '$lib/server/workers';
 import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
 import { searchSubtitlesForNewMedia } from '$lib/server/subtitles/services/SubtitleImportService.js';
+import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents';
 
 /**
  * Import result for a single file
@@ -908,6 +909,26 @@ export class ImportService extends EventEmitter {
 			category: 'imports'
 		});
 
+		// Emit event for SSE clients
+		this.emit('file:imported', {
+			mediaType: 'movie',
+			movieId: movie.id,
+			file: {
+				id: fileId,
+				relativePath: relativePath,
+				size: transferResult.sizeBytes,
+				dateAdded: fileData.dateAdded,
+				sceneName: fileData.sceneName,
+				releaseGroup: fileData.releaseGroup,
+				quality: fileData.quality,
+				mediaInfo,
+				edition: undefined
+			},
+			wasUpgrade: isUpgrade,
+			replacedFileIds: deletedFileIds.length > 0 ? deletedFileIds : undefined
+		});
+		libraryMediaEvents.emitMovieUpdated(movie.id);
+
 		// Trigger subtitle search asynchronously (don't await to avoid blocking)
 		this.triggerSubtitleSearch('movie', movie.id).catch((err) => {
 			logger.warn('[ImportService] Failed to trigger subtitle search for movie', {
@@ -1308,6 +1329,29 @@ export class ImportService extends EventEmitter {
 			await db.update(episodes).set({ hasFile: true }).where(eq(episodes.id, episodeId));
 		}
 
+		// Emit event for SSE clients
+		this.emit('file:imported', {
+			mediaType: 'episode',
+			seriesId: seriesData.id,
+			episodeIds,
+			seasonNumber: seasonNum,
+			file: {
+				id: fileId,
+				relativePath,
+				size: transferResult.sizeBytes,
+				dateAdded: fileData.dateAdded,
+				sceneName: fileData.sceneName,
+				releaseGroup: fileData.releaseGroup,
+				releaseType: fileData.releaseType,
+				quality: fileData.quality,
+				mediaInfo,
+				languages: undefined
+			},
+			wasUpgrade: isUpgrade,
+			replacedFileIds: filesToReplace.length > 0 ? filesToReplace : undefined
+		});
+		libraryMediaEvents.emitSeriesUpdated(seriesData.id);
+
 		// Delete old files if this was an upgrade
 		if (filesToReplace.length > 0) {
 			for (const oldFileId of filesToReplace) {
@@ -1699,6 +1743,13 @@ export class ImportService extends EventEmitter {
 			// Delete database record
 			await db.delete(movieFiles).where(eq(movieFiles.id, fileId));
 
+			// Emit event for SSE clients
+			this.emit('file:deleted', {
+				mediaType: 'movie',
+				movieId,
+				fileId
+			});
+
 			logger.info('Deleted movie file record', { fileId, movieId });
 			return { success: true };
 		} catch (error) {
@@ -1782,6 +1833,14 @@ export class ImportService extends EventEmitter {
 
 			// Update series stats
 			await this.updateSeriesStats(seriesId);
+
+			// Emit event for SSE clients
+			this.emit('file:deleted', {
+				mediaType: 'episode',
+				seriesId,
+				fileId,
+				episodeIds: fileRecord.episodeIds ?? []
+			});
 
 			logger.info('Deleted episode file record', { fileId, seriesId });
 			return { success: true };

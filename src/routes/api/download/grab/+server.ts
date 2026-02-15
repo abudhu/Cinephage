@@ -29,8 +29,39 @@ import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { relative } from 'node:path';
 import { redactUrl } from '$lib/server/utils/urlSecurity';
+import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents';
 
 const parser = new ReleaseParser();
+
+type EpisodeFileUpsertInput = Omit<typeof episodeFiles.$inferInsert, 'id'> & { id?: string };
+
+/**
+ * Upsert episode file by (seriesId, relativePath) to avoid duplicate rows.
+ * Returns the canonical episode_files.id (existing or newly inserted).
+ */
+async function upsertEpisodeFileByPath(record: EpisodeFileUpsertInput): Promise<string> {
+	const { id: requestedId, ...values } = record;
+
+	const existing = await db
+		.select({ id: episodeFiles.id })
+		.from(episodeFiles)
+		.where(
+			and(
+				eq(episodeFiles.seriesId, record.seriesId),
+				eq(episodeFiles.relativePath, record.relativePath)
+			)
+		)
+		.limit(1);
+
+	if (existing.length > 0) {
+		await db.update(episodeFiles).set(values).where(eq(episodeFiles.id, existing[0].id));
+		return existing[0].id;
+	}
+
+	const id = requestedId ?? randomUUID();
+	await db.insert(episodeFiles).values({ id, ...values });
+	return id;
+}
 
 /**
  * POST /api/download/grab
@@ -449,7 +480,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				magnetUrl: data.magnetUrl,
 				infoHash: data.infoHash,
 				indexerId: data.indexerId,
-				title: data.title
+				title: data.title,
+				commentsUrl: data.commentsUrl
 			});
 
 			if (!resolved.success) {
@@ -717,6 +749,7 @@ async function handleStreamingGrab(data: GrabRequest): Promise<Response> {
 				fileId,
 				relativePath
 			});
+			libraryMediaEvents.emitMovieUpdated(movieId);
 		} else if (
 			mediaType === 'tv' &&
 			seriesId &&
@@ -763,10 +796,8 @@ async function handleStreamingGrab(data: GrabRequest): Promise<Response> {
 			// Calculate relative path from root folder
 			const relativePath = relative(show.rootFolder.path, result.filePath);
 
-			// Create episode file record
-			fileId = randomUUID();
-			await db.insert(episodeFiles).values({
-				id: fileId,
+			// Create/update episode file record
+			fileId = await upsertEpisodeFileByPath({
 				seriesId,
 				seasonNumber: parsed.season,
 				episodeIds: [episodeRow.id],
@@ -806,6 +837,7 @@ async function handleStreamingGrab(data: GrabRequest): Promise<Response> {
 				fileId,
 				relativePath
 			});
+			libraryMediaEvents.emitSeriesUpdated(seriesId);
 		} else {
 			return json(
 				{
@@ -986,14 +1018,19 @@ async function handleStreamingSeasonPack(
 		);
 	}
 
-	// Batch insert all episode files
-	await db.insert(episodeFiles).values(fileRecords);
+	// Upsert all episode files by series/path to avoid duplicate rows
+	const createdFileIds: string[] = [];
+	for (const record of fileRecords) {
+		const resolvedId = await upsertEpisodeFileByPath(record);
+		if (!createdFileIds.includes(resolvedId)) {
+			createdFileIds.push(resolvedId);
+		}
+	}
 
 	// Batch update all episode hasFile flags
 	await db.update(episodes).set({ hasFile: true }).where(inArray(episodes.id, episodeIdsToUpdate));
 
 	const createdEpisodeIds = episodeIdsToUpdate;
-	const createdFileIds = fileRecords.map((r) => r.id);
 
 	logger.debug('[Grab] Batch inserted episode file records', {
 		count: fileRecords.length
@@ -1022,6 +1059,7 @@ async function handleStreamingSeasonPack(
 		episodesCreated: createdFileIds.length,
 		totalEpisodes: strmResult.results.length
 	});
+	libraryMediaEvents.emitSeriesUpdated(seriesId);
 
 	return json({
 		success: true,
@@ -1184,14 +1222,19 @@ async function handleStreamingCompleteSeries(
 		);
 	}
 
-	// Batch insert all episode files
-	await db.insert(episodeFiles).values(fileRecords);
+	// Upsert all episode files by series/path to avoid duplicate rows
+	const createdFileIds: string[] = [];
+	for (const record of fileRecords) {
+		const resolvedId = await upsertEpisodeFileByPath(record);
+		if (!createdFileIds.includes(resolvedId)) {
+			createdFileIds.push(resolvedId);
+		}
+	}
 
 	// Batch update all episode hasFile flags
 	await db.update(episodes).set({ hasFile: true }).where(inArray(episodes.id, episodeIdsToUpdate));
 
 	const createdEpisodeIds = episodeIdsToUpdate;
-	const createdFileIds = fileRecords.map((r) => r.id);
 
 	logger.debug('[Grab] Batch inserted episode file records', {
 		count: fileRecords.length,
@@ -1220,6 +1263,7 @@ async function handleStreamingCompleteSeries(
 		seasonsProcessed: strmResult.results.length,
 		episodesCreated: createdFileIds.length
 	});
+	libraryMediaEvents.emitSeriesUpdated(seriesId);
 
 	return json({
 		success: true,
@@ -1286,7 +1330,9 @@ async function handleNzbStreamingGrab(data: GrabRequest): Promise<Response> {
 
 		if (indexer && indexer.downloadTorrent) {
 			// Use indexer's download method (works for NZB too)
-			const result = await indexer.downloadTorrent(downloadUrl);
+			const result = await indexer.downloadTorrent(downloadUrl, {
+				releaseDetailsUrl: data.commentsUrl
+			});
 			if (result.success && result.data) {
 				nzbContent = result.data;
 			}
@@ -1500,11 +1546,8 @@ async function handleNzbStreamingGrab(data: GrabRequest): Promise<Response> {
 						allowStrmProbe
 					});
 					const relativePath = relative(show.rootFolder.path, strmResult.filePath);
-					const fileId = randomUUID();
-
-					// Create episode file record
-					await db.insert(episodeFiles).values({
-						id: fileId,
+					// Create/update episode file record
+					const fileId = await upsertEpisodeFileByPath({
 						seriesId,
 						seasonNumber: season,
 						episodeIds: [episodeRow.id],
@@ -1557,6 +1600,11 @@ async function handleNzbStreamingGrab(data: GrabRequest): Promise<Response> {
 			filesCreated: createdFiles.length,
 			mediaFiles: mount.mediaFiles.length
 		});
+		if (mediaType === 'movie' && movieId) {
+			libraryMediaEvents.emitMovieUpdated(movieId);
+		} else if (mediaType === 'tv' && seriesId) {
+			libraryMediaEvents.emitSeriesUpdated(seriesId);
+		}
 
 		return json({
 			success: true,
