@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { Plus } from 'lucide-svelte';
+	import { Plus, Search } from 'lucide-svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import type { PageData, ActionData } from './$types';
+	import { getResponseErrorMessage, readResponsePayload } from '$lib/utils/http';
+	import type { PageData } from './$types';
 	import type { SubtitleProviderConfig } from '$lib/server/subtitles/types';
 	import type { ProviderDefinition } from '$lib/server/subtitles/providers/interfaces';
 
-	import { SubtitleProviderTable, SubtitleProviderModal } from '$lib/components/subtitleProviders';
+	import {
+		SubtitleProviderTable,
+		SubtitleProviderModal,
+		SubtitleProviderBulkActions
+	} from '$lib/components/subtitleProviders';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { ConfirmationModal } from '$lib/components/ui/modal';
 
 	interface SubtitleProviderFormData {
 		name: string;
@@ -26,7 +32,7 @@
 		definition?: ProviderDefinition;
 	}
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data }: { data: PageData } = $props();
 
 	// Modal state
 	let modalOpen = $state(false);
@@ -36,10 +42,13 @@
 
 	// Test state
 	let testingIds = new SvelteSet<string>();
+	let bulkLoading = $state(false);
+	let selectedIds = new SvelteSet<string>();
 
 	// Confirmation dialog state
 	let confirmDeleteOpen = $state(false);
 	let deleteTarget = $state<SubtitleProviderWithDefinition | null>(null);
+	let confirmBulkDeleteOpen = $state(false);
 
 	// Sort state
 	type SortColumn = 'name' | 'priority' | 'enabled';
@@ -48,9 +57,51 @@
 		direction: 'asc'
 	});
 
-	// Derived: sorted providers
-	const sortedProviders = $derived(() => {
+	interface SubtitleProviderPageFilters {
+		status: 'all' | 'enabled' | 'disabled';
+		search: string;
+	}
+
+	let filters = $state<SubtitleProviderPageFilters>({
+		status: 'all',
+		search: ''
+	});
+
+	function updateFilter<K extends keyof SubtitleProviderPageFilters>(
+		key: K,
+		value: SubtitleProviderPageFilters[K]
+	) {
+		filters = { ...filters, [key]: value };
+	}
+
+	const filteredProviders = $derived(() => {
 		let result = [...data.providers] as SubtitleProviderWithDefinition[];
+
+		if (filters.status === 'enabled') {
+			result = result.filter((provider) => !!provider.enabled);
+		} else if (filters.status === 'disabled') {
+			result = result.filter((provider) => !provider.enabled);
+		}
+
+		const query = filters.search.trim().toLowerCase();
+		if (query) {
+			result = result.filter((provider) => {
+				const definitionName =
+					provider.definitionName ?? provider.definition?.name ?? provider.implementation;
+				return (
+					provider.name.toLowerCase().includes(query) ||
+					provider.implementation.toLowerCase().includes(query) ||
+					definitionName.toLowerCase().includes(query)
+				);
+			});
+		}
+
+		return result;
+	});
+
+	// Derived: filtered + sorted providers
+	const sortedProviders = $derived(() => {
+		let result = [...filteredProviders()] as SubtitleProviderWithDefinition[];
 
 		result.sort((a, b) => {
 			let comparison = 0;
@@ -71,6 +122,8 @@
 		return result;
 	});
 
+	const canReorder = $derived(() => filters.status === 'all' && filters.search.trim().length === 0);
+
 	// Functions
 	function openAddModal() {
 		modalMode = 'add';
@@ -89,6 +142,10 @@
 		editingProvider = null;
 	}
 
+	function getProviderErrorMessage(payload: unknown, fallback: string): string {
+		return getResponseErrorMessage(payload, fallback);
+	}
+
 	function handleSort(column: SortColumn) {
 		if (sort.column === column) {
 			sort = { column, direction: sort.direction === 'asc' ? 'desc' : 'asc' };
@@ -102,22 +159,56 @@
 		confirmDeleteOpen = true;
 	}
 
+	function handleSelect(id: string, selected: boolean) {
+		if (selected) {
+			selectedIds.add(id);
+		} else {
+			selectedIds.delete(id);
+		}
+	}
+
+	function handleSelectAll(selected: boolean) {
+		if (selected) {
+			for (const provider of sortedProviders()) {
+				selectedIds.add(provider.id);
+			}
+		} else {
+			selectedIds.clear();
+		}
+	}
+
+	async function testProviderConnection(provider: SubtitleProviderWithDefinition) {
+		const response = await fetch('/api/subtitles/providers/test', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				implementation: provider.implementation,
+				apiKey: provider.apiKey,
+				username: provider.username,
+				password: provider.password
+			})
+		});
+		const payload = await readResponsePayload<{
+			success?: boolean;
+			error?: string;
+			message?: string;
+			responseTime?: number;
+		}>(response);
+		if (!response.ok || !payload || typeof payload === 'string') {
+			return {
+				success: false,
+				error: getProviderErrorMessage(payload, 'Connection test failed')
+			};
+		}
+		return payload;
+	}
+
 	async function handleTest(provider: SubtitleProviderWithDefinition) {
 		testingIds.add(provider.id);
 		try {
-			const response = await fetch('/api/subtitles/providers/test', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					implementation: provider.implementation,
-					apiKey: provider.apiKey,
-					username: provider.username,
-					password: provider.password
-				})
-			});
-			const result = await response.json();
+			const result = await testProviderConnection(provider);
 			if (!result.success) {
-				toasts.error(`Test failed: ${result.error}`);
+				toasts.error(`Test failed: ${result.message || result.error || 'Connection test failed'}`);
 			} else {
 				toasts.success(`Connection successful! (${result.responseTime}ms)`);
 			}
@@ -125,6 +216,145 @@
 			toasts.error(`Test failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
 		} finally {
 			testingIds.delete(provider.id);
+		}
+	}
+
+	async function handleToggle(provider: SubtitleProviderWithDefinition) {
+		try {
+			const response = await fetch(`/api/subtitles/providers/${provider.id}`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json',
+					Accept: 'application/json'
+				},
+				body: JSON.stringify({ enabled: !provider.enabled })
+			});
+			const result = await readResponsePayload<Record<string, unknown>>(response);
+			if (!response.ok) {
+				throw new Error(getProviderErrorMessage(result, 'Failed to update provider state'));
+			}
+			await invalidateAll();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to update provider state');
+		}
+	}
+
+	async function handleBulkEnable() {
+		if (selectedIds.size === 0) return;
+		bulkLoading = true;
+		try {
+			for (const id of selectedIds) {
+				const response = await fetch(`/api/subtitles/providers/${id}`, {
+					method: 'PUT',
+					headers: {
+						'Content-Type': 'application/json',
+						Accept: 'application/json'
+					},
+					body: JSON.stringify({ enabled: true })
+				});
+				const result = await readResponsePayload<Record<string, unknown>>(response);
+				if (!response.ok) {
+					throw new Error(getProviderErrorMessage(result, 'Failed to enable selected providers'));
+				}
+			}
+
+			await invalidateAll();
+			selectedIds.clear();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to enable selected providers');
+		} finally {
+			bulkLoading = false;
+		}
+	}
+
+	async function handleBulkDisable() {
+		if (selectedIds.size === 0) return;
+		bulkLoading = true;
+		try {
+			for (const id of selectedIds) {
+				const response = await fetch(`/api/subtitles/providers/${id}`, {
+					method: 'PUT',
+					headers: {
+						'Content-Type': 'application/json',
+						Accept: 'application/json'
+					},
+					body: JSON.stringify({ enabled: false })
+				});
+				const result = await readResponsePayload<Record<string, unknown>>(response);
+				if (!response.ok) {
+					throw new Error(getProviderErrorMessage(result, 'Failed to disable selected providers'));
+				}
+			}
+
+			await invalidateAll();
+			selectedIds.clear();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to disable selected providers');
+		} finally {
+			bulkLoading = false;
+		}
+	}
+
+	async function handleBulkDelete() {
+		if (selectedIds.size === 0) return;
+		confirmBulkDeleteOpen = true;
+	}
+
+	async function handleConfirmBulkDelete() {
+		if (selectedIds.size === 0) {
+			confirmBulkDeleteOpen = false;
+			return;
+		}
+
+		bulkLoading = true;
+		try {
+			for (const id of selectedIds) {
+				const response = await fetch(`/api/subtitles/providers/${id}`, {
+					method: 'DELETE',
+					headers: { Accept: 'application/json' }
+				});
+				const result = await readResponsePayload<Record<string, unknown>>(response);
+				if (!response.ok) {
+					throw new Error(getProviderErrorMessage(result, 'Failed to delete selected providers'));
+				}
+			}
+
+			await invalidateAll();
+			selectedIds.clear();
+			confirmBulkDeleteOpen = false;
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to delete selected providers');
+		} finally {
+			bulkLoading = false;
+		}
+	}
+
+	async function handleBulkTest() {
+		if (selectedIds.size === 0) return;
+		bulkLoading = true;
+
+		let successCount = 0;
+		let failCount = 0;
+		try {
+			for (const id of selectedIds) {
+				const provider = data.providers.find((p) => p.id === id) as
+					| SubtitleProviderWithDefinition
+					| undefined;
+				if (!provider) continue;
+
+				const result = await testProviderConnection(provider);
+				if (result.success) {
+					successCount += 1;
+				} else {
+					failCount += 1;
+				}
+			}
+
+			toasts.info(`Bulk test complete: ${successCount} passed, ${failCount} failed`);
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to test selected providers');
+		} finally {
+			bulkLoading = false;
 		}
 	}
 
@@ -142,7 +372,14 @@
 					password: formData.password
 				})
 			});
-			return await response.json();
+			const result = await readResponsePayload<{ success?: boolean; error?: string }>(response);
+			if (!response.ok || !result || typeof result === 'string') {
+				return {
+					success: false,
+					error: getProviderErrorMessage(result, 'Connection test failed')
+				};
+			}
+			return { success: Boolean(result.success), error: result.error };
 		} catch (e) {
 			return { success: false, error: e instanceof Error ? e.message : 'Unknown error' };
 		}
@@ -151,20 +388,29 @@
 	async function handleSave(formData: SubtitleProviderFormData) {
 		saving = true;
 		try {
-			const form = new FormData();
-			form.append('data', JSON.stringify(formData));
+			const response =
+				modalMode === 'edit' && editingProvider
+					? await fetch(`/api/subtitles/providers/${editingProvider.id}`, {
+							method: 'PUT',
+							headers: {
+								'Content-Type': 'application/json',
+								Accept: 'application/json'
+							},
+							body: JSON.stringify(formData)
+						})
+					: await fetch('/api/subtitles/providers', {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/json',
+								Accept: 'application/json'
+							},
+							body: JSON.stringify(formData)
+						});
 
-			if (modalMode === 'edit' && editingProvider) {
-				form.append('id', editingProvider.id);
-				await fetch(`?/updateProvider`, {
-					method: 'POST',
-					body: form
-				});
-			} else {
-				await fetch(`?/createProvider`, {
-					method: 'POST',
-					body: form
-				});
+			const result = await readResponsePayload<Record<string, unknown>>(response);
+			if (!response.ok) {
+				toasts.error(getProviderErrorMessage(result, 'Failed to save provider'));
+				return;
 			}
 
 			await invalidateAll();
@@ -176,27 +422,39 @@
 
 	async function handleDelete() {
 		if (!editingProvider) return;
-		const form = new FormData();
-		form.append('id', editingProvider.id);
-		await fetch(`?/deleteProvider`, {
-			method: 'POST',
-			body: form
-		});
-		await invalidateAll();
-		closeModal();
+		try {
+			const response = await fetch(`/api/subtitles/providers/${editingProvider.id}`, {
+				method: 'DELETE',
+				headers: { Accept: 'application/json' }
+			});
+			const result = await readResponsePayload<Record<string, unknown>>(response);
+			if (!response.ok) {
+				throw new Error(getProviderErrorMessage(result, 'Failed to delete provider'));
+			}
+			await invalidateAll();
+			closeModal();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to delete provider');
+		}
 	}
 
 	async function handleConfirmDelete() {
 		if (!deleteTarget) return;
-		const form = new FormData();
-		form.append('id', deleteTarget.id);
-		await fetch(`?/deleteProvider`, {
-			method: 'POST',
-			body: form
-		});
-		await invalidateAll();
-		confirmDeleteOpen = false;
-		deleteTarget = null;
+		try {
+			const response = await fetch(`/api/subtitles/providers/${deleteTarget.id}`, {
+				method: 'DELETE',
+				headers: { Accept: 'application/json' }
+			});
+			const result = await readResponsePayload<Record<string, unknown>>(response);
+			if (!response.ok) {
+				throw new Error(getProviderErrorMessage(result, 'Failed to delete provider'));
+			}
+			await invalidateAll();
+			confirmDeleteOpen = false;
+			deleteTarget = null;
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to delete provider');
+		}
 	}
 
 	async function handleReorder(providerIds: string[]) {
@@ -220,44 +478,86 @@
 	}
 </script>
 
-<div class="w-full p-4">
-	<div class="mb-6">
-		<h1 class="text-2xl font-bold">Subtitle Providers</h1>
+<div class="w-full p-3 sm:p-4">
+	<div class="mb-5 sm:mb-6">
+		<h1 class="text-xl font-bold sm:text-2xl">Subtitle Providers</h1>
 		<p class="text-base-content/70">
 			Configure subtitle providers for automatic subtitle search and download.
 		</p>
 	</div>
 
 	<div class="mb-4 flex items-center justify-end">
-		<button class="btn gap-2 btn-primary" onclick={openAddModal}>
+		<button class="btn w-full gap-2 btn-sm btn-primary sm:w-auto" onclick={openAddModal}>
 			<Plus class="h-4 w-4" />
 			Add Provider
 		</button>
 	</div>
 
-	{#if form?.providerError}
-		<div class="mb-4 alert alert-error">
-			<span>{form.providerError}</span>
+	<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+		<div class="form-control relative w-full sm:w-56">
+			<Search
+				class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-base-content/40"
+			/>
+			<input
+				type="text"
+				placeholder="Search providers..."
+				class="input input-sm w-full rounded-full border-base-content/20 bg-base-200/60 pr-4 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+				value={filters.search}
+				oninput={(e) => updateFilter('search', e.currentTarget.value)}
+			/>
 		</div>
+
+		<div class="join w-full sm:w-auto">
+			<button
+				class="btn join-item flex-1 btn-sm sm:flex-none"
+				class:btn-active={filters.status === 'all'}
+				onclick={() => updateFilter('status', 'all')}
+			>
+				All
+			</button>
+			<button
+				class="btn join-item flex-1 btn-sm sm:flex-none"
+				class:btn-active={filters.status === 'enabled'}
+				onclick={() => updateFilter('status', 'enabled')}
+			>
+				Enabled
+			</button>
+			<button
+				class="btn join-item flex-1 btn-sm sm:flex-none"
+				class:btn-active={filters.status === 'disabled'}
+				onclick={() => updateFilter('status', 'disabled')}
+			>
+				Disabled
+			</button>
+		</div>
+	</div>
+
+	{#if selectedIds.size > 0}
+		<SubtitleProviderBulkActions
+			selectedCount={selectedIds.size}
+			loading={bulkLoading}
+			onEnable={handleBulkEnable}
+			onDisable={handleBulkDisable}
+			onDelete={handleBulkDelete}
+			onTestAll={handleBulkTest}
+		/>
 	{/if}
 
-	{#if form?.providerSuccess}
-		<div class="mb-4 alert alert-success">
-			<span>Operation completed successfully!</span>
-		</div>
-	{/if}
-
-	<div class="card bg-base-100 shadow-xl">
-		<div class="card-body p-0">
+	<div class="card bg-base-200/40 shadow-none sm:bg-base-100 sm:shadow-xl">
+		<div class="card-body p-2 sm:p-0">
 			<SubtitleProviderTable
 				providers={sortedProviders()}
+				{selectedIds}
 				{sort}
 				{testingIds}
+				onSelect={handleSelect}
+				onSelectAll={handleSelectAll}
 				onSort={handleSort}
 				onEdit={openEditModal}
 				onDelete={confirmDelete}
 				onTest={handleTest}
-				onReorder={handleReorder}
+				onToggle={handleToggle}
+				onReorder={canReorder() ? handleReorder : undefined}
 			/>
 		</div>
 	</div>
@@ -279,7 +579,7 @@
 <!-- Delete Confirmation Modal -->
 {#if confirmDeleteOpen}
 	<div class="modal-open modal">
-		<div class="modal-box w-full max-w-[min(28rem,calc(100vw-2rem))] break-words">
+		<div class="modal-box w-full max-w-[min(28rem,calc(100vw-2rem))] wrap-break-word">
 			<h3 class="text-lg font-bold">Confirm Delete</h3>
 			<p class="py-4">
 				Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This action cannot be
@@ -298,3 +598,16 @@
 		></button>
 	</div>
 {/if}
+
+<ConfirmationModal
+	open={confirmBulkDeleteOpen}
+	title="Confirm Delete"
+	messagePrefix="Are you sure you want to delete "
+	messageEmphasis={`${selectedIds.size} subtitle provider(s)`}
+	messageSuffix="? This action cannot be undone."
+	confirmLabel="Delete"
+	confirmVariant="error"
+	loading={bulkLoading}
+	onConfirm={handleConfirmBulkDelete}
+	onCancel={() => (confirmBulkDeleteOpen = false)}
+/>

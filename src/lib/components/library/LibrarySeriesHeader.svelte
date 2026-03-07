@@ -8,8 +8,10 @@
 		RefreshCw,
 		Package,
 		Download,
+		Zap,
 		Loader2
 	} from 'lucide-svelte';
+	import { formatBytes } from '$lib/utils/format.js';
 
 	interface SeriesData {
 		tmdbId: number;
@@ -49,6 +51,7 @@
 
 	interface Props {
 		series: SeriesData;
+		totalSize?: number;
 		qualityProfileName?: string | null;
 		refreshing?: boolean;
 		refreshProgress?: RefreshProgress | null;
@@ -60,6 +63,7 @@
 		onMonitorToggle?: (newValue: boolean) => void;
 		onSearch?: () => void;
 		onSearchMissing?: () => void;
+		onImport?: () => void;
 		onEdit?: () => void;
 		onDelete?: () => void;
 		onRefresh?: () => void;
@@ -67,6 +71,7 @@
 
 	let {
 		series,
+		totalSize = 0,
 		qualityProfileName = null,
 		refreshing = false,
 		refreshProgress = null,
@@ -78,6 +83,7 @@
 		onMonitorToggle,
 		onSearch,
 		onSearchMissing,
+		onImport,
 		onEdit,
 		onDelete,
 		onRefresh
@@ -123,7 +129,7 @@
 			/>
 		{/if}
 		<div
-			class="absolute inset-0 bg-gradient-to-r from-base-200/80 via-base-200/75 to-base-200/60 sm:from-base-200 sm:via-base-200/95 sm:to-base-200/80"
+			class="absolute inset-0 bg-linear-to-r from-base-200/80 via-base-200/75 to-base-200/60 sm:from-base-200 sm:via-base-200/95 sm:to-base-200/80"
 		></div>
 	</div>
 
@@ -180,13 +186,13 @@
 						size="md"
 					/>
 
-					<!-- Search Missing Button -->
+					<!-- Auto Grab Button -->
 					<button
 						class="btn gap-2 btn-sm btn-primary"
 						onclick={onSearchMissing}
 						disabled={searchingMissing || missingEpisodeCount === 0}
 						title={missingEpisodeCount > 0
-							? `Search for ${missingEpisodeCount} missing episodes`
+							? `Automatically search for ${missingEpisodeCount} missing episodes and download`
 							: 'No missing episodes'}
 					>
 						{#if searchingMissing}
@@ -199,13 +205,13 @@
 								<span class="hidden sm:inline">Searching...</span>
 							{/if}
 						{:else if missingSearchResult}
-							<Download size={16} />
+							<Zap size={16} />
 							<span class="hidden sm:inline"
 								>Grabbed {missingSearchResult.grabbed}/{missingSearchResult.searched}</span
 							>
 						{:else}
-							<Download size={16} />
-							<span class="hidden sm:inline">Search Missing</span>
+							<Zap size={16} />
+							<span class="hidden sm:inline">Auto Grab</span>
 							{#if missingEpisodeCount > 0}
 								<span class="badge badge-sm badge-secondary">{missingEpisodeCount}</span>
 							{/if}
@@ -221,6 +227,16 @@
 						<Package size={16} />
 						<span class="hidden sm:inline">Season Packs</span>
 					</button>
+					{#if onImport}
+						<button
+							class="btn gap-2 btn-ghost btn-sm"
+							onclick={onImport}
+							title="Import local media"
+						>
+							<Download size={16} />
+							<span class="hidden sm:inline">Import</span>
+						</button>
+					{/if}
 					<button
 						class="btn gap-2 btn-ghost btn-sm"
 						onclick={onRefresh}
@@ -251,19 +267,33 @@
 
 			<!-- Middle row: Episode progress -->
 			<div class="flex flex-col gap-2">
-				<div class="flex items-center gap-4 text-sm">
-					<span class="font-medium">
-						{series.episodeFileCount ?? 0} / {series.episodeCount ?? 0} Episodes
-					</span>
-					<span class="text-base-content/60">
-						({series.percentComplete}% complete)
-					</span>
-					{#if downloadingCount > 0}
-						<span class="flex items-center gap-1 text-warning">
-							<Download size={14} class="animate-pulse" />
-							{downloadingCount} downloading
+				<div class="flex items-center gap-2 text-sm">
+					<div class="flex min-w-0 items-center gap-3 sm:gap-4">
+						<span class="font-medium whitespace-nowrap">
+							{series.episodeFileCount ?? 0} / {series.episodeCount ?? 0} Episodes &nbsp;
+							{#if series.episodeCount === 0}
+								<span class="badge badge-ghost badge-xs">No episodes</span>
+							{:else if series.episodeFileCount === 0}
+								<span class="badge badge-xs badge-error">All missing</span>
+							{/if}
+							{#if series.percentComplete === 100}
+								<span class="badge badge-sm badge-success">Complete</span>
+							{:else if series.percentComplete > 0}
+								<span class="badge badge-sm badge-primary">{series.percentComplete}%</span>
+							{/if}
+							&nbsp;
+							{#if totalSize > 0}
+								<span class="badge badge-sm badge-info">{formatBytes(totalSize)} </span>
+							{/if}
+							&nbsp;
+							{#if downloadingCount > 0}
+								<span class="text-bold badge badge-sm font-semibold badge-success">
+									<Download size={16} class="animate-pulse" />
+									<span>{downloadingCount}</span>
+								</span>
+							{/if}
 						</span>
-					{/if}
+					</div>
 				</div>
 				<div class="h-2 w-full max-w-md overflow-hidden rounded-full bg-base-300">
 					<div

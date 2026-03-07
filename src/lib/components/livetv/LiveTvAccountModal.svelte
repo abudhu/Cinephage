@@ -221,7 +221,7 @@
 			case 'xstream':
 				config.baseUrl = baseUrl.trim();
 				config.username = username.trim();
-				config.password = password.trim();
+				config.password = password.trim() || account?.xstreamConfig?.password || '';
 				break;
 			case 'm3u':
 				if (inputMode === 'freeiptv') {
@@ -385,21 +385,23 @@
 					}
 				: null}
 			successMessage={testResult?.profile
-				? `Connection successful • ${testResult.profile.channelCount.toLocaleString()} channels`
+				? `Connection successful (${testResult.profile.streamVerified ? 'Stream verified' : 'Stream not verified'})`
 				: 'Connection successful!'}
 			successDetails={testResult?.profile
-				? `Categories: ${testResult.profile.categoryCount} • Status: ${testResult.profile.status}${testResult.profile.expiresAt ? ` • Expires: ${new Date(testResult.profile.expiresAt).toLocaleDateString()}` : ''}`
+				? `${testResult.profile.channelCount.toLocaleString()} channels • ${testResult.profile.categoryCount.toLocaleString()} categories${testResult.profile.expiresAt ? ` • Expires: ${new Date(testResult.profile.expiresAt).toLocaleDateString()}` : ''}`
 				: undefined}
 		/>
 
 		<!-- Actions -->
-		<div class="modal-action">
+		<div class="modal-action flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center">
 			{#if mode === 'edit' && onDelete}
-				<button class="btn mr-auto btn-outline btn-error" onclick={onDelete}>Delete</button>
+				<button class="btn w-full btn-outline btn-error sm:mr-auto sm:w-auto" onclick={onDelete}>
+					Delete
+				</button>
 			{/if}
 
 			<button
-				class="btn btn-ghost"
+				class="btn w-full btn-ghost sm:w-auto"
 				onclick={handleTest}
 				disabled={testing || saving || !canSubmit()}
 			>
@@ -409,9 +411,13 @@
 				Test
 			</button>
 
-			<button class="btn btn-ghost" onclick={onClose}>Cancel</button>
+			<button class="btn w-full btn-ghost sm:w-auto" onclick={onClose}>Cancel</button>
 
-			<button class="btn btn-primary" onclick={handleSave} disabled={saving || !canSubmit()}>
+			<button
+				class="btn w-full btn-primary sm:w-auto"
+				onclick={handleSave}
+				disabled={saving || !canSubmit()}
+			>
 				{#if saving}
 					<Loader2 class="h-4 w-4 animate-spin" />
 				{/if}

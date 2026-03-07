@@ -15,6 +15,18 @@ import { eq, asc, inArray, and } from 'drizzle-orm';
 import type { RequestHandler } from '@sveltejs/kit';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents';
 
+const ACTIVE_DOWNLOAD_STATUSES = [
+	'queued',
+	'downloading',
+	'stalled',
+	'paused',
+	'completed',
+	'postprocessing',
+	'importing',
+	'seeding',
+	'seeding-imported'
+] as const;
+
 // Local type definitions
 interface EpisodeFileInfo {
 	id: string;
@@ -145,6 +157,7 @@ async function getSeriesData(seriesId: string) {
 			scoringProfileId: series.scoringProfileId,
 			monitored: series.monitored,
 			seasonFolder: series.seasonFolder,
+			seriesType: series.seriesType,
 			wantsSubtitles: series.wantsSubtitles,
 			added: series.added,
 			episodeCount: series.episodeCount,
@@ -292,7 +305,12 @@ async function getQueueItems(seriesId: string): Promise<QueueItem[]> {
 			seasonNumber: downloadQueue.seasonNumber
 		})
 		.from(downloadQueue)
-		.where(and(eq(downloadQueue.seriesId, seriesId), eq(downloadQueue.status, 'downloading')));
+		.where(
+			and(
+				eq(downloadQueue.seriesId, seriesId),
+				inArray(downloadQueue.status, [...ACTIVE_DOWNLOAD_STATUSES])
+			)
+		);
 
 	return results.map((q) => ({
 		id: q.id,

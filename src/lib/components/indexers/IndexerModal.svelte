@@ -16,7 +16,7 @@
 		definitions: IndexerDefinition[];
 		saving: boolean;
 		onClose: () => void;
-		onSave: (data: IndexerFormData) => void;
+		onSave: (data: IndexerFormData) => void | Promise<void>;
 		onDelete?: () => void;
 		onTest: (data: IndexerFormData) => Promise<{ success: boolean; error?: string }>;
 	}
@@ -36,6 +36,7 @@
 	// Form state - Basic
 	let selectedDefinitionId = $state('');
 	let name = $state('');
+	const MAX_NAME_LENGTH = 20;
 	let url = $state('');
 	let enabled = $state(true);
 	let priority = $state(25);
@@ -50,7 +51,6 @@
 	let seedRatio = $state('');
 	let seedTime = $state<number | ''>('');
 	let packSeedTime = $state<number | ''>('');
-	let preferMagnetUrl = $state(false);
 	let rejectDeadTorrents = $state(true);
 
 	// Test state
@@ -98,6 +98,7 @@
 
 	const isTorrent = $derived(uiHints()?.showTorrentSettings ?? false);
 	const isStreaming = $derived(uiHints()?.isStreaming ?? false);
+	const nameTooLong = $derived(name.length > MAX_NAME_LENGTH);
 
 	const hasAuthSettings = $derived(
 		selectedDefinition?.settings &&
@@ -116,7 +117,38 @@
 			Boolean
 		)
 	);
-	const alternateUrls = $derived(definitionUrls.filter((u) => u !== url));
+	const normalizeUrlForCompare = (value: string): string => value.trim().replace(/\/+$/, '');
+	const alternateUrls = $derived.by(() => {
+		const normalizedCurrent = normalizeUrlForCompare(url);
+		const normalizedDefinitionUrls = definitionUrls.map((u) => normalizeUrlForCompare(u));
+		const singleDefinitionUrl =
+			normalizedDefinitionUrls.length === 1 ? normalizedDefinitionUrls[0] : null;
+
+		// In edit mode, only reflect explicitly saved failover URLs.
+		// Also suppress stale placeholder failovers when definition has only one URL and
+		// the user chose a custom base URL.
+		if (mode === 'edit') {
+			return (indexer?.alternateUrls ?? []).filter((u) => {
+				const normalized = normalizeUrlForCompare(u);
+				if (!normalized || normalized === normalizedCurrent) return false;
+				if (
+					singleDefinitionUrl &&
+					normalized === singleDefinitionUrl &&
+					normalizedCurrent &&
+					normalizedCurrent !== singleDefinitionUrl
+				) {
+					return false;
+				}
+				return true;
+			});
+		}
+
+		// In add mode, only infer failovers when definition explicitly provides
+		// multiple URLs and the selected URL is one of them.
+		if (normalizedDefinitionUrls.length <= 1) return [];
+		if (!normalizedDefinitionUrls.includes(normalizedCurrent)) return [];
+		return definitionUrls.filter((u) => normalizeUrlForCompare(u) !== normalizedCurrent);
+	});
 
 	// Reset form when modal opens
 	$effect(() => {
@@ -138,19 +170,10 @@
 			seedRatio = indexer?.seedRatio ?? '';
 			seedTime = indexer?.seedTime ?? '';
 			packSeedTime = indexer?.packSeedTime ?? '';
-			preferMagnetUrl = indexer?.preferMagnetUrl ?? false;
 			rejectDeadTorrents = indexer?.rejectDeadTorrents ?? true;
 
 			urlTouched = false;
 			testResult = null;
-		}
-	});
-
-	// Update defaults when definition changes in add mode
-	$effect(() => {
-		if (mode === 'add' && selectedDefinition) {
-			if (!url) url = selectedDefinition.siteUrl ?? '';
-			if (!name) name = selectedDefinition.name;
 		}
 	});
 
@@ -180,7 +203,6 @@
 			seedRatio: seedRatio || null,
 			seedTime: seedTime === '' ? null : seedTime,
 			packSeedTime: packSeedTime === '' ? null : packSeedTime,
-			preferMagnetUrl,
 			rejectDeadTorrents
 		};
 	}
@@ -195,8 +217,26 @@
 		}
 	}
 
-	function handleSave() {
-		onSave(getFormData());
+	async function handleSave() {
+		const formData = getFormData();
+
+		// Pre-save validation: run connection test first for enabled indexers.
+		// If test fails, block save and surface the returned error inline.
+		if (enabled) {
+			testing = true;
+			testResult = null;
+			try {
+				const result = await onTest(formData);
+				testResult = result;
+				if (!result.success) {
+					return;
+				}
+			} finally {
+				testing = false;
+			}
+		}
+
+		await onSave(formData);
 	}
 </script>
 
@@ -325,12 +365,12 @@
 				{seedRatio}
 				{seedTime}
 				{packSeedTime}
-				{preferMagnetUrl}
 				{rejectDeadTorrents}
 				{isTorrent}
 				{isStreaming}
 				hasAuthSettings={hasAuthSettings ?? false}
 				{definitionUrls}
+				{alternateUrls}
 				onNameChange={(v) => (name = v)}
 				onUrlChange={(v) => (url = v)}
 				onUrlBlur={() => (urlTouched = true)}
@@ -343,7 +383,6 @@
 				onSeedRatioChange={(v) => (seedRatio = v)}
 				onSeedTimeChange={(v) => (seedTime = v)}
 				onPackSeedTimeChange={(v) => (packSeedTime = v)}
-				onPreferMagnetUrlChange={(v) => (preferMagnetUrl = v)}
 				onRejectDeadTorrentsChange={(v) => (rejectDeadTorrents = v)}
 			/>
 		{/if}
@@ -360,7 +399,7 @@
 			<button
 				class="btn btn-ghost"
 				onclick={handleTest}
-				disabled={testing || saving || !url || !name || !urlValid()}
+				disabled={testing || saving || !url || !name || nameTooLong || !urlValid()}
 			>
 				{#if testing}
 					<Loader2 class="h-4 w-4 animate-spin" />
@@ -373,7 +412,7 @@
 			<button
 				class="btn btn-primary"
 				onclick={handleSave}
-				disabled={saving || !url || !name || !urlValid()}
+				disabled={saving || testing || !url || !name || nameTooLong || !urlValid()}
 			>
 				{#if saving}
 					<Loader2 class="h-4 w-4 animate-spin" />

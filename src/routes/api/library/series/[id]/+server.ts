@@ -7,18 +7,19 @@ import {
 	episodes,
 	episodeFiles,
 	downloadHistory,
+	downloadQueue,
 	rootFolders,
 	subtitles
 } from '$lib/server/db/schema.js';
 import { eq, inArray, and } from 'drizzle-orm';
-import { unlink, rmdir, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { deleteDirectoryWithinRoot } from '$lib/server/filesystem/delete-helpers.js';
 import { logger } from '$lib/logging';
 import { getLanguageProfileService } from '$lib/server/subtitles/services/LanguageProfileService.js';
 import { searchSubtitlesForMediaBatch } from '$lib/server/subtitles/services/SubtitleImportService.js';
 import { searchOnAdd } from '$lib/server/library/searchOnAdd.js';
 import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
 import { deleteAllAlternateTitles } from '$lib/server/services/index.js';
+import { getDownloadClientManager } from '$lib/server/downloadClients/DownloadClientManager.js';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents';
 
 /**
@@ -49,6 +50,7 @@ export const GET: RequestHandler = async ({ params }) => {
 				languageProfileId: series.languageProfileId,
 				monitored: series.monitored,
 				seasonFolder: series.seasonFolder,
+				seriesType: series.seriesType,
 				added: series.added,
 				episodeCount: series.episodeCount,
 				episodeFileCount: series.episodeFileCount,
@@ -82,6 +84,16 @@ export const GET: RequestHandler = async ({ params }) => {
 			.from(episodeFiles)
 			.where(eq(episodeFiles.seriesId, params.id));
 
+		// Match the page-load/SSE behavior: build a stable episode -> file map.
+		// Using allFiles.find(...) can over-assign stale pack rows during client-side refreshes.
+		const episodeIdToFile = new Map<string, (typeof allFiles)[number]>();
+		for (const file of allFiles) {
+			const episodeIds = file.episodeIds as string[] | null;
+			for (const episodeId of episodeIds ?? []) {
+				episodeIdToFile.set(episodeId, file);
+			}
+		}
+
 		// Get subtitles for all episodes in this series
 		const episodeIds = allEpisodes.map((ep) => ep.id);
 		const allSubtitles =
@@ -108,7 +120,7 @@ export const GET: RequestHandler = async ({ params }) => {
 					const epSubtitles = subtitlesByEpisode.get(ep.id) || [];
 					return {
 						...ep,
-						file: allFiles.find((f) => f.episodeIds?.includes(ep.id)),
+						file: episodeIdToFile.get(ep.id) ?? null,
 						subtitles: epSubtitles.map((s) => ({
 							id: s.id,
 							language: s.language,
@@ -165,6 +177,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			monitored,
 			scoringProfileId,
 			seasonFolder,
+			seriesType,
 			rootFolderId,
 			wantsSubtitles,
 			languageProfileId
@@ -192,6 +205,9 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		}
 		if (typeof seasonFolder === 'boolean') {
 			updateData.seasonFolder = seasonFolder;
+		}
+		if (seriesType === 'standard' || seriesType === 'anime' || seriesType === 'daily') {
+			updateData.seriesType = seriesType;
 		}
 		if (rootFolderId !== undefined) {
 			updateData.rootFolderId = rootFolderId;
@@ -332,36 +348,11 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 
 		// Delete files from disk if requested
 		if (deleteFiles && seriesItem.rootFolderPath && seriesItem.path) {
-			for (const file of files) {
-				const fullPath = join(seriesItem.rootFolderPath, seriesItem.path, file.relativePath);
-				try {
-					await unlink(fullPath);
-					logger.debug('[API] Deleted file', { fullPath });
-				} catch {
-					logger.warn('[API] Could not delete file', { fullPath });
-				}
-			}
-
-			// Try to remove empty season folders and the series folder
-			const seriesFolder = join(seriesItem.rootFolderPath, seriesItem.path);
-			try {
-				const entries = await readdir(seriesFolder, { withFileTypes: true });
-				for (const entry of entries) {
-					if (entry.isDirectory()) {
-						try {
-							await rmdir(join(seriesFolder, entry.name));
-							logger.debug('[API] Removed season folder', { name: entry.name });
-						} catch {
-							// Not empty - that's fine
-						}
-					}
-				}
-				// Try to remove the series folder itself
-				await rmdir(seriesFolder);
-				logger.debug('[API] Removed series folder', { seriesFolder });
-			} catch {
-				// Folder not empty or doesn't exist - that's fine
-			}
+			const seriesFolder = await deleteDirectoryWithinRoot(
+				seriesItem.rootFolderPath,
+				seriesItem.path
+			);
+			logger.debug('[API] Removed series folder and all contents', { seriesFolder });
 		}
 
 		// Delete all episode file records from database
@@ -370,6 +361,38 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 		}
 
 		if (removeFromLibrary) {
+			// Cancel active downloads from client before removing
+			const activeQueueItems = await db
+				.select()
+				.from(downloadQueue)
+				.where(eq(downloadQueue.seriesId, params.id));
+
+			for (const queueItem of activeQueueItems) {
+				if (queueItem.downloadClientId) {
+					try {
+						const isTorrent = queueItem.protocol === 'torrent';
+						const clientDownloadId = isTorrent
+							? queueItem.infoHash || queueItem.downloadId
+							: queueItem.downloadId || queueItem.infoHash;
+						if (clientDownloadId) {
+							const clientInstance = await getDownloadClientManager().getClientInstance(
+								queueItem.downloadClientId
+							);
+							if (clientInstance) {
+								await clientInstance.removeDownload(clientDownloadId, true);
+							}
+						}
+					} catch (err) {
+						logger.warn('[API] Failed to remove download from client', {
+							queueItemId: queueItem.id,
+							error: err instanceof Error ? err.message : 'Unknown'
+						});
+					}
+				}
+				// Delete queue record
+				await db.delete(downloadQueue).where(eq(downloadQueue.id, queueItem.id));
+			}
+
 			// Preserve activity audit trail after media row is deleted (FKs become null on delete)
 			await db
 				.update(downloadHistory)
@@ -388,7 +411,10 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 			return json({ success: true, removed: true });
 		} else {
 			// Update all episodes in this series to hasFile=false
-			await db.update(episodes).set({ hasFile: false }).where(eq(episodes.seriesId, params.id));
+			await db
+				.update(episodes)
+				.set({ hasFile: false, lastSearchTime: null })
+				.where(eq(episodes.seriesId, params.id));
 
 			// Update all seasons' episode file count to 0
 			await db.update(seasons).set({ episodeFileCount: 0 }).where(eq(seasons.seriesId, params.id));

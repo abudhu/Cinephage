@@ -237,7 +237,6 @@ export class IndexerManager {
 				seedRatio: config.seedRatio ?? null,
 				seedTime: config.seedTime ?? null,
 				packSeedTime: config.packSeedTime ?? null,
-				preferMagnetUrl: config.preferMagnetUrl ?? false,
 				rejectDeadTorrents: config.rejectDeadTorrents ?? true
 			};
 		}
@@ -292,7 +291,6 @@ export class IndexerManager {
 			updates.seedRatio !== undefined ||
 			updates.seedTime !== undefined ||
 			updates.packSeedTime !== undefined ||
-			updates.preferMagnetUrl !== undefined ||
 			updates.rejectDeadTorrents !== undefined
 		) {
 			const currentSettings =
@@ -304,7 +302,6 @@ export class IndexerManager {
 				...(updates.seedRatio !== undefined && { seedRatio: updates.seedRatio }),
 				...(updates.seedTime !== undefined && { seedTime: updates.seedTime }),
 				...(updates.packSeedTime !== undefined && { packSeedTime: updates.packSeedTime }),
-				...(updates.preferMagnetUrl !== undefined && { preferMagnetUrl: updates.preferMagnetUrl }),
 				...(updates.rejectDeadTorrents !== undefined && {
 					rejectDeadTorrents: updates.rejectDeadTorrents
 				})
@@ -320,10 +317,14 @@ export class IndexerManager {
 		// Update status tracking
 		const statusTracker = getPersistentStatusTracker();
 		if (updates.enabled !== undefined) {
-			if (updates.enabled) {
-				statusTracker.enable(id);
-			} else {
-				statusTracker.disable(id);
+			// Only change runtime health state when enabled flag actually changes.
+			// Saving unrelated edits should not reset failure/backoff history.
+			if (updates.enabled !== existing.enabled) {
+				if (updates.enabled) {
+					statusTracker.enable(id);
+				} else {
+					statusTracker.disable(id);
+				}
 			}
 		}
 		if (updates.priority !== undefined) {
@@ -451,7 +452,7 @@ export class IndexerManager {
 	}
 
 	/** Test an indexer's connectivity (YAML-only) */
-	async testIndexer(config: Omit<IndexerConfig, 'id'>): Promise<void> {
+	async testIndexer(config: Omit<IndexerConfig, 'id'>, statusIndexerId?: string): Promise<void> {
 		const definition = this.definitionLoader.get(config.definitionId);
 		if (!definition) {
 			throw new Error(`Unknown definition: ${config.definitionId}`);
@@ -466,7 +467,23 @@ export class IndexerManager {
 		if (!instance) {
 			throw new Error(`Failed to create indexer instance for: ${config.definitionId}`);
 		}
-		await instance.test();
+
+		const startedAt = Date.now();
+		try {
+			await instance.test();
+
+			// If this test is for an existing saved indexer, update health status on success.
+			if (statusIndexerId) {
+				await getPersistentStatusTracker().recordSuccess(statusIndexerId, Date.now() - startedAt);
+			}
+		} catch (error) {
+			// Reflect manual test failures in health status for existing indexers.
+			if (statusIndexerId) {
+				const message = error instanceof Error ? error.message : String(error);
+				await getPersistentStatusTracker().recordFailure(statusIndexerId, message);
+			}
+			throw error;
+		}
 	}
 
 	/** Get capabilities for a definition (YAML-only) */
@@ -518,7 +535,6 @@ export class IndexerManager {
 			seedRatio?: string | null; // Stored as string (e.g., "1.5")
 			seedTime?: number | null;
 			packSeedTime?: number | null;
-			preferMagnetUrl?: boolean;
 			rejectDeadTorrents?: boolean;
 		} | null;
 
@@ -542,7 +558,6 @@ export class IndexerManager {
 			seedRatio: protocolSettings?.seedRatio ?? null,
 			seedTime: protocolSettings?.seedTime ?? null,
 			packSeedTime: protocolSettings?.packSeedTime ?? null,
-			preferMagnetUrl: protocolSettings?.preferMagnetUrl ?? false,
 			rejectDeadTorrents: protocolSettings?.rejectDeadTorrents ?? true
 		};
 	}

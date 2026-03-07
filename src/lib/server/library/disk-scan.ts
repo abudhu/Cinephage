@@ -6,7 +6,7 @@
  */
 
 import { readdir, stat } from 'fs/promises';
-import { join, basename, dirname, relative, extname } from 'path';
+import { join, dirname, relative } from 'path';
 import { db } from '$lib/server/db/index.js';
 import {
 	rootFolders,
@@ -25,6 +25,16 @@ import { ReleaseParser } from '$lib/server/indexers/parser/ReleaseParser.js';
 import { EventEmitter } from 'events';
 import { logger } from '$lib/logging';
 import { DOWNLOAD } from '$lib/config/constants';
+import {
+	findOverlappingRootFolder,
+	getRootFolderOverlapMessage
+} from '$lib/server/filesystem/root-folder-overlap.js';
+import { libraryMediaEvents } from './LibraryMediaEvents.js';
+import {
+	getMediaParseStem,
+	matchEpisodesByIdentifier,
+	resolveTvEpisodeIdentifier
+} from './tv-episode-resolver.js';
 
 /**
  * Patterns to filter out sample/extra files
@@ -32,21 +42,7 @@ import { DOWNLOAD } from '$lib/config/constants';
  */
 const EXCLUDED_PATTERNS = {
 	// Sample files
-	samples: [/\bsample\b/i, /\btrailer\b/i, /\bteaser\b/i, /\bpromo\b/i, /\bpreview\b/i],
-	// Extras/featurettes
-	extras: [
-		/\bfeaturette\b/i,
-		/\bbehind[\s._-]?the[\s._-]?scenes?\b/i,
-		/\bdeleted[\s._-]?scenes?\b/i,
-		/\bbloopers?\b/i,
-		/\bgag[\s._-]?reel\b/i,
-		/\binterview\b/i,
-		/\bcommentary\b/i,
-		/\bmaking[\s._-]?of\b/i,
-		/\bbonus\b/i,
-		/\bextras?\b/i,
-		/\bspecial[\s._-]?features?\b/i
-	],
+	samples: [/\bsample\b/i],
 	// Folders to skip entirely
 	excludedFolders: [
 		/^\./, // Hidden folders
@@ -67,6 +63,11 @@ const EXCLUDED_PATTERNS = {
 		/^subtitles?$/i
 	]
 };
+
+/**
+ * SQLite has a practical limit on bound parameters; keep IN queries chunked.
+ */
+const DB_CHUNK_SIZE = 400;
 
 /**
  * Discovered file information
@@ -103,6 +104,7 @@ export interface ScanResult {
 	success: boolean;
 	scanId: string;
 	rootFolderId: string;
+	rootFolderPath: string;
 	filesScanned: number;
 	filesAdded: number;
 	filesUpdated: number;
@@ -160,11 +162,6 @@ export class DiskScanService extends EventEmitter {
 	private shouldExcludeFile(fileName: string, filePath: string): boolean {
 		// Check samples
 		if (EXCLUDED_PATTERNS.samples.some((pattern) => pattern.test(fileName))) {
-			return true;
-		}
-
-		// Check extras
-		if (EXCLUDED_PATTERNS.extras.some((pattern) => pattern.test(fileName))) {
 			return true;
 		}
 
@@ -237,6 +234,42 @@ export class DiskScanService extends EventEmitter {
 							error: statError instanceof Error ? statError.message : String(statError)
 						});
 					}
+				} else if (entry.isSymbolicLink()) {
+					// Include symlinked files (e.g., NZB-Mount/rclone strategies),
+					// but avoid recursing through symlinked directories.
+					if (!isVideoFile(entry.name)) {
+						continue;
+					}
+
+					const relativePath = relative(rootPath, fullPath);
+					if (this.shouldExcludeFile(entry.name, relativePath)) {
+						continue;
+					}
+
+					try {
+						const stats = await stat(fullPath);
+						if (!stats.isFile()) {
+							continue;
+						}
+
+						// Skip files below minimum size (except .strm streaming placeholders)
+						if (stats.size < DOWNLOAD.MIN_SCAN_SIZE_BYTES && !entry.name.endsWith('.strm')) {
+							continue;
+						}
+
+						files.push({
+							path: fullPath,
+							relativePath,
+							size: stats.size,
+							modifiedAt: stats.mtime,
+							parentFolder: dirname(relativePath) || '.'
+						});
+					} catch (statError) {
+						logger.warn('[DiskScan] Could not stat symlinked file', {
+							fullPath,
+							error: statError instanceof Error ? statError.message : String(statError)
+						});
+					}
 				}
 			}
 		} catch (error) {
@@ -298,6 +331,7 @@ export class DiskScanService extends EventEmitter {
 
 		try {
 			this.emit('progress', progress);
+			await this.assertNoRootFolderOverlap(rootFolderId, rootFolder.path);
 
 			// Discover files
 			const discoveredFiles = await this.discoverFiles(rootFolder.path);
@@ -358,6 +392,10 @@ export class DiskScanService extends EventEmitter {
 				}
 			}
 
+			// Reconcile denormalized hasFile flags and cached counts with actual file records.
+			// This keeps manual scans and watcher-triggered scans consistent with filesystem reality.
+			await this.reconcileMediaPresence(rootFolderId, rootFolder.mediaType);
+
 			// Update scan record
 			await db
 				.update(libraryScanHistory)
@@ -379,6 +417,7 @@ export class DiskScanService extends EventEmitter {
 				success: true,
 				scanId: scanRecord.id,
 				rootFolderId,
+				rootFolderPath: rootFolder.path,
 				filesScanned: progress.filesFound,
 				filesAdded: progress.filesAdded,
 				filesUpdated: progress.filesUpdated,
@@ -407,6 +446,7 @@ export class DiskScanService extends EventEmitter {
 				success: false,
 				scanId: scanRecord.id,
 				rootFolderId,
+				rootFolderPath: rootFolder.path,
 				filesScanned: progress.filesFound,
 				filesAdded: progress.filesAdded,
 				filesUpdated: progress.filesUpdated,
@@ -418,6 +458,199 @@ export class DiskScanService extends EventEmitter {
 		} finally {
 			this.isScanning = false;
 			this.currentScanId = null;
+		}
+	}
+
+	/**
+	 * Split large IN-list operations into safe chunks for SQLite.
+	 */
+	private chunkArray<T>(values: T[], chunkSize = DB_CHUNK_SIZE): T[][] {
+		if (values.length === 0) return [];
+		const chunks: T[][] = [];
+		for (let i = 0; i < values.length; i += chunkSize) {
+			chunks.push(values.slice(i, i + chunkSize));
+		}
+		return chunks;
+	}
+
+	private async assertNoRootFolderOverlap(
+		rootFolderId: string,
+		rootFolderPath: string
+	): Promise<void> {
+		const existingFolders = await db
+			.select({
+				id: rootFolders.id,
+				path: rootFolders.path,
+				name: rootFolders.name
+			})
+			.from(rootFolders);
+		const overlap = await findOverlappingRootFolder(rootFolderPath, existingFolders, rootFolderId);
+		if (overlap) {
+			throw new Error(getRootFolderOverlapMessage(rootFolderPath, overlap));
+		}
+	}
+
+	/**
+	 * Reconcile hasFile booleans with current file records.
+	 * This repairs stale state caused by external filesystem changes and keeps
+	 * Missing Content task inputs accurate.
+	 */
+	private async reconcileMediaPresence(rootFolderId: string, mediaType: string): Promise<void> {
+		if (mediaType === 'movie') {
+			await this.reconcileMoviePresence(rootFolderId);
+			return;
+		}
+
+		if (mediaType === 'tv') {
+			await this.reconcileEpisodePresence(rootFolderId);
+			return;
+		}
+	}
+
+	/**
+	 * Reconcile movie hasFile flags from movieFiles rows.
+	 */
+	private async reconcileMoviePresence(rootFolderId: string): Promise<void> {
+		const moviesInFolder = await db
+			.select({ id: movies.id, hasFile: movies.hasFile })
+			.from(movies)
+			.where(eq(movies.rootFolderId, rootFolderId));
+
+		if (moviesInFolder.length === 0) {
+			return;
+		}
+
+		const movieIds = moviesInFolder.map((movie) => movie.id);
+		const moviesWithFiles = new Set<string>();
+
+		for (const idChunk of this.chunkArray(movieIds)) {
+			const fileRows = await db
+				.select({ movieId: movieFiles.movieId })
+				.from(movieFiles)
+				.where(inArray(movieFiles.movieId, idChunk));
+
+			for (const row of fileRows) {
+				moviesWithFiles.add(row.movieId);
+			}
+		}
+
+		const changedMovieIds: string[] = [];
+		for (const movie of moviesInFolder) {
+			const shouldHaveFile = moviesWithFiles.has(movie.id);
+			const currentlyHasFile = movie.hasFile ?? false;
+			if (shouldHaveFile === currentlyHasFile) {
+				continue;
+			}
+
+			const lostFile = currentlyHasFile && !shouldHaveFile;
+			await db
+				.update(movies)
+				.set({
+					hasFile: shouldHaveFile,
+					...(lostFile ? { lastSearchTime: null } : {})
+				})
+				.where(eq(movies.id, movie.id));
+			changedMovieIds.push(movie.id);
+		}
+
+		if (changedMovieIds.length > 0) {
+			logger.info('[DiskScan] Reconciled movie file state', {
+				rootFolderId,
+				changedMovies: changedMovieIds.length
+			});
+
+			for (const movieId of changedMovieIds) {
+				libraryMediaEvents.emitMovieUpdated(movieId);
+			}
+		}
+	}
+
+	/**
+	 * Reconcile episode hasFile flags from episodeFiles rows and refresh series/season counts.
+	 */
+	private async reconcileEpisodePresence(rootFolderId: string): Promise<void> {
+		const seriesInFolder = await db
+			.select({ id: series.id })
+			.from(series)
+			.where(eq(series.rootFolderId, rootFolderId));
+
+		if (seriesInFolder.length === 0) {
+			return;
+		}
+
+		const seriesIds = seriesInFolder.map((show) => show.id);
+		const episodesInFolder: Array<{ id: string; seriesId: string; hasFile: boolean | null }> = [];
+
+		for (const seriesChunk of this.chunkArray(seriesIds)) {
+			const rows = await db
+				.select({
+					id: episodes.id,
+					seriesId: episodes.seriesId,
+					hasFile: episodes.hasFile
+				})
+				.from(episodes)
+				.where(inArray(episodes.seriesId, seriesChunk));
+			episodesInFolder.push(...rows);
+		}
+
+		const episodeIdsWithFiles = new Set<string>();
+		for (const seriesChunk of this.chunkArray(seriesIds)) {
+			const fileRows = await db
+				.select({ episodeIds: episodeFiles.episodeIds })
+				.from(episodeFiles)
+				.where(inArray(episodeFiles.seriesId, seriesChunk));
+
+			for (const file of fileRows) {
+				const ids = file.episodeIds as string[] | null;
+				for (const episodeId of ids ?? []) {
+					episodeIdsWithFiles.add(episodeId);
+				}
+			}
+		}
+
+		const episodeIdsToSetTrue: string[] = [];
+		const episodeIdsToSetFalse: string[] = [];
+		const touchedSeriesIds = new Set<string>();
+
+		for (const episode of episodesInFolder) {
+			const shouldHaveFile = episodeIdsWithFiles.has(episode.id);
+			const currentlyHasFile = episode.hasFile ?? false;
+
+			if (shouldHaveFile && !currentlyHasFile) {
+				episodeIdsToSetTrue.push(episode.id);
+				touchedSeriesIds.add(episode.seriesId);
+			} else if (!shouldHaveFile && currentlyHasFile) {
+				episodeIdsToSetFalse.push(episode.id);
+				touchedSeriesIds.add(episode.seriesId);
+			}
+		}
+
+		for (const idChunk of this.chunkArray(episodeIdsToSetTrue)) {
+			await db.update(episodes).set({ hasFile: true }).where(inArray(episodes.id, idChunk));
+		}
+
+		for (const idChunk of this.chunkArray(episodeIdsToSetFalse)) {
+			await db
+				.update(episodes)
+				.set({ hasFile: false, lastSearchTime: null })
+				.where(inArray(episodes.id, idChunk));
+		}
+
+		// Always refresh cached counts for series in this root folder.
+		for (const seriesId of seriesIds) {
+			await this.updateSeriesAndSeasonStats(seriesId);
+		}
+
+		if (episodeIdsToSetTrue.length > 0 || episodeIdsToSetFalse.length > 0) {
+			logger.info('[DiskScan] Reconciled episode file state', {
+				rootFolderId,
+				episodesSetTrue: episodeIdsToSetTrue.length,
+				episodesSetFalse: episodeIdsToSetFalse.length
+			});
+		}
+
+		for (const seriesId of touchedSeriesIds) {
+			libraryMediaEvents.emitSeriesUpdated(seriesId);
 		}
 	}
 
@@ -568,7 +801,12 @@ export class DiskScanService extends EventEmitter {
 	): Promise<boolean> {
 		// Get all series in this root folder
 		const seriesInFolder = await db
-			.select({ id: series.id, path: series.path, seasonFolder: series.seasonFolder })
+			.select({
+				id: series.id,
+				path: series.path,
+				seasonFolder: series.seasonFolder,
+				seriesType: series.seriesType
+			})
 			.from(series)
 			.where(eq(series.rootFolderId, rootFolderId));
 
@@ -579,17 +817,21 @@ export class DiskScanService extends EventEmitter {
 			if (file.path.startsWith(seriesFullPath + '/')) {
 				// File is inside this series folder!
 				const relativePath = relative(seriesFullPath, file.path);
-				const fileName = basename(file.path, extname(file.path));
+				const fileName = getMediaParseStem(file.path);
 				const parsed = this.parser.parse(fileName);
+				const identifier = resolveTvEpisodeIdentifier({
+					filePath: file.path,
+					parsed,
+					seriesType:
+						s.seriesType === 'anime' || s.seriesType === 'daily' ? s.seriesType : 'standard'
+				});
 
-				// Need season/episode info to proceed
-				if (!parsed.episode?.season || !parsed.episode?.episodes?.length) {
-					logger.debug('[DiskScan] Could not parse S/E from filename', { fileName });
+				if (!identifier) {
+					logger.debug('[DiskScan] Could not resolve episode mapping from filename', {
+						fileName
+					});
 					return false; // Fall back to unmatched
 				}
-
-				const seasonNum = parsed.episode.season;
-				const episodeNums = parsed.episode.episodes;
 
 				// Check if episode_file already exists
 				const existingFile = await db
@@ -604,23 +846,18 @@ export class DiskScanService extends EventEmitter {
 					return true;
 				}
 
-				// Find matching episodes
-				const matchingEpisodes = await db
-					.select()
-					.from(episodes)
-					.where(and(eq(episodes.seriesId, s.id), eq(episodes.seasonNumber, seasonNum)));
-
-				const episodeIds = matchingEpisodes
-					.filter((ep) => episodeNums.includes(ep.episodeNumber))
-					.map((ep) => ep.id);
+				const seriesEpisodes = await db.select().from(episodes).where(eq(episodes.seriesId, s.id));
+				const matchingEpisodes = matchEpisodesByIdentifier(seriesEpisodes, identifier);
+				const episodeIds = matchingEpisodes.map((ep) => ep.id);
+				const seasonNum = matchingEpisodes[0]?.seasonNumber;
+				const episodeNums = matchingEpisodes.map((ep) => ep.episodeNumber);
 
 				// If no episodes found in DB, we can't link this file - let it become unmatched
 				// This prevents creating orphaned episode_files with empty episodeIds
-				if (episodeIds.length === 0) {
+				if (episodeIds.length === 0 || seasonNum === undefined) {
 					logger.debug('[DiskScan] No matching episodes in DB for file', {
 						fileName,
-						seasonNum,
-						episodeNums,
+						identifier,
 						seriesId: s.id
 					});
 					return false; // Fall back to unmatched
@@ -723,8 +960,12 @@ export class DiskScanService extends EventEmitter {
 		mediaType: string
 	): Promise<void> {
 		// Parse the filename to extract info
-		const fileName = basename(file.path, extname(file.path));
+		const fileName = getMediaParseStem(file.path);
 		const parsed = this.parser.parse(fileName);
+		const identifier = resolveTvEpisodeIdentifier({
+			filePath: file.path,
+			parsed
+		});
 
 		await db.insert(unmatchedFiles).values({
 			path: file.path,
@@ -733,8 +974,8 @@ export class DiskScanService extends EventEmitter {
 			size: file.size,
 			parsedTitle: parsed.cleanTitle || null,
 			parsedYear: parsed.year || null,
-			parsedSeason: parsed.episode?.season || null,
-			parsedEpisode: parsed.episode?.episodes?.[0] || null,
+			parsedSeason: identifier?.numbering === 'standard' ? identifier.seasonNumber : null,
+			parsedEpisode: identifier?.numbering === 'standard' ? identifier.episodeNumbers[0] : null,
 			reason: 'no_match' // Will be updated by MediaMatcherService
 		});
 	}

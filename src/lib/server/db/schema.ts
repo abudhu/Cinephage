@@ -95,7 +95,6 @@ export interface TorrentProtocolSettings {
 	seedRatio: string | null;
 	seedTime: number | null;
 	packSeedTime: number | null;
-	preferMagnetUrl: boolean;
 	rejectDeadTorrents: boolean;
 }
 
@@ -203,6 +202,10 @@ export const indexerStatus = sqliteTable(
 		recentFailures: text('recent_failures', { mode: 'json' })
 			.$type<Array<{ timestamp: string; message: string; requestUrl?: string }>>()
 			.default([]),
+
+		// Session cookies for persistent authentication (e.g., ncore 2FA sessions)
+		cookies: text('cookies', { mode: 'json' }).$type<Record<string, string>>(),
+		cookiesExpirationDate: text('cookies_expiration_date'),
 
 		// Timestamps
 		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
@@ -427,6 +430,13 @@ export const downloadClients = sqliteTable('download_clients', {
 	tempPathRemote: text('temp_path_remote'),
 
 	priority: integer('priority').default(1),
+	// Health status (persisted across restarts, updated by manual/runtime checks)
+	health: text('health').default('healthy'), // 'healthy' | 'warning' | 'failing'
+	consecutiveFailures: integer('consecutive_failures').default(0),
+	lastSuccess: text('last_success'),
+	lastFailure: text('last_failure'),
+	lastFailureMessage: text('last_failure_message'),
+	lastCheckedAt: text('last_checked_at'),
 	createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
 	updatedAt: text('updated_at').$defaultFn(() => new Date().toISOString())
 });
@@ -2742,7 +2752,7 @@ export const portalScanResults = sqliteTable(
 		channelCount: integer('channel_count'),
 		categoryCount: integer('category_count'),
 		expiresAt: text('expires_at'),
-		accountStatus: text('account_status').$type<'active' | 'blocked' | 'expired'>(),
+		accountStatus: text('account_status').$type<'active' | 'expired'>(),
 		playbackLimit: integer('playback_limit'),
 		serverTimezone: text('server_timezone'),
 		rawProfile: text('raw_profile'), // JSON - full profile data for review

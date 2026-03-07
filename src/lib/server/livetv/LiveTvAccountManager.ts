@@ -53,9 +53,10 @@ function generateDeviceId(): string {
 }
 
 /**
- * Convert database record to API response type
+ * Convert database record to API response type.
+ * Shared across all providers and services that need to map DB rows to LiveTvAccount.
  */
-function recordToAccount(record: LivetvAccountRecord): LiveTvAccount {
+export function recordToAccount(record: LivetvAccountRecord): LiveTvAccount {
 	return {
 		id: record.id,
 		name: record.name,
@@ -212,8 +213,11 @@ export class LiveTvAccountManager implements BackgroundService {
 			m3uConfig = {
 				url: input.m3uConfig.url,
 				fileContent: input.m3uConfig.fileContent,
+				epgUrl: input.m3uConfig.epgUrl,
 				refreshIntervalHours: input.m3uConfig.refreshIntervalHours || 24,
-				autoRefresh: input.m3uConfig.autoRefresh ?? false
+				autoRefresh: input.m3uConfig.autoRefresh ?? false,
+				headers: input.m3uConfig.headers,
+				userAgent: input.m3uConfig.userAgent
 			};
 		} else if (input.providerType === 'iptvorg' && input.iptvOrgConfig) {
 			iptvOrgConfig = {

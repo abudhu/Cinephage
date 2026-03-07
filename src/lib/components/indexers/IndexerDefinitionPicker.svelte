@@ -27,7 +27,9 @@
 		const filtered = filteredDefinitions();
 		return {
 			public: filtered.filter((d) => d.type === 'public' && d.protocol !== 'streaming'),
-			private: filtered.filter((d) => d.type === 'private' || d.type === 'semi-private'),
+			private: filtered.filter(
+				(d) => (d.type === 'private' || d.type === 'semi-private') && d.protocol !== 'streaming'
+			),
 			streaming: filtered.filter((d) => d.protocol === 'streaming')
 		};
 	});
@@ -40,7 +42,7 @@
 			<Search class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-base-content/50" />
 			<input
 				type="text"
-				class="input-bordered input w-full pl-10"
+				class="input w-full rounded-full border-base-content/20 bg-base-200/60 pr-4 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 				placeholder="Search indexers..."
 				bind:value={searchQuery}
 			/>
@@ -48,7 +50,7 @@
 	</div>
 
 	<!-- Definition List -->
-	<div class="max-h-[400px] overflow-y-auto rounded-lg border border-base-300">
+	<div class="max-h-100 overflow-y-auto rounded-lg border border-base-300">
 		{#if groupedDefinitions().public.length > 0}
 			<div class="sticky top-0 z-10 border-b border-base-300 bg-base-200 px-4 py-2">
 				<span class="flex items-center gap-2 text-sm font-medium text-base-content/70">

@@ -47,7 +47,6 @@ export const indexerCreateSchema = z.object({
 		.nullable(), // Decimal as string (e.g., "1.0")
 	seedTime: z.number().int().min(0).optional().nullable(), // Minutes
 	packSeedTime: z.number().int().min(0).optional().nullable(), // Minutes
-	preferMagnetUrl: z.boolean().default(false),
 	rejectDeadTorrents: z.boolean().default(true) // Reject torrents with 0 seeders
 });
 
@@ -60,6 +59,7 @@ export const indexerUpdateSchema = indexerCreateSchema.partial();
  * Schema for testing an indexer connection.
  */
 export const indexerTestSchema = z.object({
+	indexerId: z.string().uuid().optional(),
 	name: z.string().min(1),
 	definitionId: z.string().regex(/^[a-z0-9-]+$/),
 	baseUrl: z.string().url(),
@@ -597,7 +597,10 @@ export const subtitleDownloadSchema = z.object({
 export const subtitleSyncSchema = z.object({
 	subtitleId: z.string().uuid(),
 	referenceType: z.enum(['video', 'subtitle']).default('video'),
-	referencePath: z.string().optional(),
+	referencePath: z
+		.string()
+		.refine((s) => !s.includes('\0'), { message: 'Path must not contain null bytes' })
+		.optional(),
 	maxOffsetSeconds: z.number().int().min(1).max(600).default(60),
 	noFixFramerate: z.boolean().default(false),
 	gss: z.boolean().default(false)

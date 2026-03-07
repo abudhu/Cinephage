@@ -18,10 +18,23 @@
 	import { FileEdit, Wifi, WifiOff, Loader2 } from 'lucide-svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { resolvePath } from '$lib/utils/routing';
 	import { createDynamicSSE } from '$lib/sse';
 	import { mobileSSEStatus } from '$lib/sse/mobileStatus.svelte';
 
 	let { data }: { data: PageData } = $props();
+
+	const ACTIVE_QUEUE_STATUSES = new Set([
+		'queued',
+		'downloading',
+		'stalled',
+		'paused',
+		'completed',
+		'postprocessing',
+		'importing',
+		'seeding',
+		'seeding-imported'
+	]);
 
 	// Reactive data that will be updated via SSE
 	let movieState = $state<LibraryMovie | null>(null);
@@ -55,7 +68,7 @@
 			queueItemState = payload.queueItem;
 		},
 		'queue:updated': (payload) => {
-			if (payload.status !== 'downloading') {
+			if (!ACTIVE_QUEUE_STATUSES.has(payload.status)) {
 				queueItemState = null;
 			} else {
 				queueItemState = {
@@ -228,6 +241,17 @@
 
 	function handleSearch() {
 		isSearchModalOpen = true;
+	}
+
+	function handleImport() {
+		const query = [
+			`mediaType=movie`,
+			`tmdbId=${encodeURIComponent(String(movie.tmdbId))}`,
+			`libraryId=${encodeURIComponent(movie.id)}`,
+			`title=${encodeURIComponent(movie.title)}`,
+			...(movie.year ? [`year=${encodeURIComponent(String(movie.year))}`] : [])
+		].join('&');
+		void goto(resolvePath(`/library/import?${query}`));
 	}
 
 	async function handleAutoSearch() {
@@ -582,6 +606,7 @@
 		onMonitorToggle={handleMonitorToggle}
 		onAutoSearch={handleAutoSearch}
 		onSearch={handleSearch}
+		onImport={handleImport}
 		onEdit={handleEdit}
 		onDelete={handleDelete}
 		onScoreClick={handleScoreClick}
@@ -750,6 +775,8 @@
 	open={isDeleteModalOpen}
 	title="Delete Movie"
 	itemName={movie.title}
+	hasFiles={movie.hasFile === true}
+	hasActiveDownload={queueItem !== null && queueItem !== undefined}
 	loading={isDeleting}
 	onConfirm={performDelete}
 	onCancel={() => (isDeleteModalOpen = false)}

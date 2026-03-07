@@ -116,6 +116,11 @@ const DEFAULT_OPTIONS: Required<
 	useCache: true
 };
 
+interface TvEpisodeCounts {
+	seriesEpisodeCount?: number;
+	seasonEpisodeCounts: Map<number, number>;
+}
+
 /**
  * Orchestrates searches across multiple indexers with tiered strategy.
  */
@@ -123,6 +128,8 @@ export class SearchOrchestrator {
 	private statusTracker: PersistentStatusTracker;
 	/** Cache for season episode counts (tmdbId:season -> count) */
 	private seasonEpisodeCountCache: Map<string, number> = new Map();
+	/** Cache for TV show episode counts (tmdbId -> aggregate + per-season counts) */
+	private tvEpisodeCountsCache: Map<number, TvEpisodeCounts> = new Map();
 	private rateLimitRegistry: RateLimitRegistry;
 	private hostRateLimiter: HostRateLimiter;
 	private deduplicator: ReleaseDeduplicator;
@@ -214,8 +221,10 @@ export class SearchOrchestrator {
 		// Deduplicate
 		const { releases: deduped } = this.deduplicator.deduplicate(allReleases);
 
-		// Filter by season/episode if specified (use original criteria for filtering)
-		let filtered = this.filterBySeasonEpisode(deduped, criteria);
+		// Filter by season/episode if specified.
+		// Use criteriaWithSource so interactive/automatic behavior is respected.
+		// (season/episode fields are unchanged from original criteria)
+		let filtered = this.filterBySeasonEpisode(deduped, criteriaWithSource);
 
 		// Filter by category match (reject releases in wrong categories)
 		if (criteria.searchType !== 'basic') {
@@ -338,6 +347,17 @@ export class SearchOrchestrator {
 			const searchType = enrichedCriteria.searchType as 'movie' | 'tv' | 'music' | 'book';
 			filtered = this.filterByCategoryMatch(filtered, searchType);
 		}
+
+		// Hard filter by ID match with title+year fallback
+		// Completely removes releases with wrong IDs or mismatched title/year
+		if (isMovieSearch(enrichedCriteria) || isTvSearch(enrichedCriteria)) {
+			filtered = this.filterByIdOrTitleMatch(filtered, enrichedCriteria);
+		}
+
+		// Filter by title relevance (safety net for irrelevant results)
+		if (enrichedCriteria.searchType !== 'basic') {
+			filtered = this.filterByTitleRelevance(filtered, enrichedCriteria);
+		}
 		const afterFilteringCount = filtered.length;
 
 		// Enrich with quality scoring and optional TMDB matching
@@ -349,15 +369,33 @@ export class SearchOrchestrator {
 					? 'tv'
 					: undefined;
 
-		// Get season episode count for TV season searches (for season pack size validation)
-		// Use provided value, or fetch from TMDB if we have tmdbId + season
+		// Get TV episode counts from TMDB for season-pack size validation.
+		// Needed for:
+		// - Targeted season searches (single season pack average size)
+		// - Multi-season/complete-series searches (sum episodes across matched seasons)
+		let seriesEpisodeCount = opts.enrichment?.seriesEpisodeCount;
+		let seasonEpisodeCounts = opts.enrichment?.seasonEpisodeCounts;
+		if (
+			isTvSearch(enrichedCriteria) &&
+			enrichedCriteria.tmdbId &&
+			(seriesEpisodeCount === undefined || !seasonEpisodeCounts || seasonEpisodeCounts.size === 0)
+		) {
+			const tvCounts = await this.getTvEpisodeCounts(enrichedCriteria.tmdbId);
+			if (tvCounts) {
+				seriesEpisodeCount ??= tvCounts.seriesEpisodeCount;
+				seasonEpisodeCounts ??= tvCounts.seasonEpisodeCounts;
+			}
+		}
+
 		let seasonEpisodeCount = opts.enrichment?.seasonEpisodeCount;
 		if (
 			seasonEpisodeCount === undefined &&
 			isTvSearch(enrichedCriteria) &&
 			enrichedCriteria.season !== undefined
 		) {
-			seasonEpisodeCount = await this.getSeasonEpisodeCount(enrichedCriteria);
+			seasonEpisodeCount =
+				seasonEpisodeCounts?.get(enrichedCriteria.season) ??
+				(await this.getSeasonEpisodeCount(enrichedCriteria));
 		}
 
 		// Build indexer config map for protocol-specific rejection (seeder minimums, dead torrents, etc.)
@@ -380,6 +418,8 @@ export class SearchOrchestrator {
 			useEnhancedScoring: opts.enrichment?.useEnhancedScoring,
 			mediaType,
 			seasonEpisodeCount,
+			seriesEpisodeCount,
+			seasonEpisodeCounts,
 			indexerConfigs
 		};
 
@@ -527,7 +567,7 @@ export class SearchOrchestrator {
 						indexerId: indexer.id,
 						indexerName: indexer.name,
 						reason: 'backoff',
-						message: 'Indexer is in backoff due to recent failures'
+						message: 'Indexer auto-disabled due to repeated failures'
 					});
 					logger.debug(`Indexer ${indexer.name} rejected: in backoff period`, {
 						indexerId: indexer.id
@@ -694,7 +734,7 @@ export class SearchOrchestrator {
 			// Record success for both indexer and host rate limits
 			limiter.recordRequest();
 			this.hostRateLimiter.recordRequest(indexer.baseUrl);
-			this.statusTracker.recordSuccess(indexer.id, Date.now() - startTime);
+			await this.statusTracker.recordSuccess(indexer.id, Date.now() - startTime);
 
 			// Attach indexer priority to each release for Radarr-style deduplication
 			// Lower priority number = higher preference (1 is highest priority)
@@ -723,7 +763,10 @@ export class SearchOrchestrator {
 				});
 
 				// Record failure with Cloudflare-specific message
-				this.statusTracker.recordFailure(indexer.id, `Cloudflare protection on ${error.host}`);
+				await this.statusTracker.recordFailure(
+					indexer.id,
+					`Cloudflare protection on ${error.host}`
+				);
 
 				return {
 					indexerId: indexer.id,
@@ -740,7 +783,7 @@ export class SearchOrchestrator {
 			});
 
 			// Record failure
-			this.statusTracker.recordFailure(indexer.id, message);
+			await this.statusTracker.recordFailure(indexer.id, message);
 
 			return {
 				indexerId: indexer.id,
@@ -760,11 +803,79 @@ export class SearchOrchestrator {
 		// Check if criteria has IDs AND if the indexer supports those specific IDs
 		const indexerSupportsIds = this.indexerSupportsSearchIds(indexer, criteria);
 
-		// Tier 1: If criteria has searchable IDs AND indexer supports them, use ID search
+		// Tier 1: If criteria has searchable IDs AND indexer supports them, use ID search.
+		// If the ID query returns no results, fall back to text search for providers
+		// with incomplete ID mapping (common on some Newznab instances).
 		if (hasSearchableIds(criteria) && indexerSupportsIds) {
 			const idCriteria = createIdOnlyCriteria(criteria);
-			const releases = await indexer.search(idCriteria);
-			return { releases, searchMethod: 'id' };
+			let idReleases = await indexer.search(idCriteria);
+
+			const hasTextFallbackSource =
+				!!criteria.query || !!(criteria.searchTitles && criteria.searchTitles.length > 0);
+
+			// Some Newznab providers over-constrain movie ID searches when q/year
+			// are present together. Retry once with IDs only before text fallback.
+			if (idReleases.length === 0 && isMovieSearch(criteria) && (criteria.query || criteria.year)) {
+				const movieIdOnlyCriteria = {
+					...criteria,
+					query: undefined,
+					year: undefined
+				};
+				const movieIdOnlyReleases = await indexer.search(movieIdOnlyCriteria);
+				if (movieIdOnlyReleases.length > 0) {
+					logger.debug('Movie ID retry without q/year returned results', {
+						indexer: indexer.name,
+						imdbId: criteria.imdbId,
+						tmdbId: criteria.tmdbId
+					});
+					idReleases = movieIdOnlyReleases;
+				}
+			}
+
+			if (idReleases.length > 0) {
+				// For interactive movie searches, supplement ID results with text variants.
+				// This matches NZBHydra-style behavior where text variants can surface
+				// additional releases even when ID lookup succeeds.
+				const shouldSupplementWithText =
+					isMovieSearch(criteria) &&
+					criteria.searchSource === 'interactive' &&
+					hasTextFallbackSource;
+				if (shouldSupplementWithText) {
+					const textReleases = await this.executeMultiTitleTextSearch(indexer, criteria);
+					if (textReleases.length > 0) {
+						const merged = [...idReleases];
+						const seenGuids = new Set(idReleases.map((r) => r.guid));
+						for (const release of textReleases) {
+							if (!seenGuids.has(release.guid)) {
+								seenGuids.add(release.guid);
+								merged.push(release);
+							}
+						}
+						logger.debug('Supplemented movie ID results with text fallback', {
+							indexer: indexer.name,
+							idResults: idReleases.length,
+							textResults: textReleases.length,
+							mergedResults: merged.length
+						});
+						return { releases: merged, searchMethod: 'text' };
+					}
+				}
+				return { releases: idReleases, searchMethod: 'id' };
+			}
+
+			if (!hasTextFallbackSource) {
+				return { releases: [], searchMethod: 'id' };
+			}
+
+			logger.debug('ID search returned no results, falling back to text search', {
+				indexer: indexer.name,
+				searchType: criteria.searchType,
+				query: criteria.query,
+				hasSearchTitles: !!criteria.searchTitles?.length
+			});
+
+			const fallbackReleases = await this.executeMultiTitleTextSearch(indexer, criteria);
+			return { releases: fallbackReleases, searchMethod: 'text' };
 		}
 
 		// Tier 2: Fall back to text search with multi-title support
@@ -827,23 +938,29 @@ export class SearchOrchestrator {
 			episodeFormats = getEpisodeFormats(criteria, formatTypes);
 		}
 
+		let attemptedVariants = 0;
+		let successfulVariants = 0;
+		const variantErrors: string[] = [];
+
 		// Search with each title variant (limit to 3 titles to avoid excessive queries)
 		for (const title of titlesToSearch.slice(0, 3)) {
-			try {
-				if (episodeFormats.length > 0) {
-					// TV search: try each episode format
-					// Pass CLEAN query (just title) with preferredEpisodeFormat set
-					// TemplateEngine uses preferredEpisodeFormat to add the correct token
-					for (const format of episodeFormats) {
-						const textCriteria = createTextOnlyCriteria({
-							...criteria,
-							// Clean query: just the title, no episode token embedded
-							query: title,
-							// Tell TemplateEngine which format to use for this request
-							preferredEpisodeFormat: format.type
-						});
+			if (episodeFormats.length > 0) {
+				// TV search: try each episode format
+				// Pass CLEAN query (just title) with preferredEpisodeFormat set
+				// TemplateEngine uses preferredEpisodeFormat to add the correct token
+				for (const format of episodeFormats) {
+					const textCriteria = createTextOnlyCriteria({
+						...criteria,
+						// Clean query: just the title, no episode token embedded
+						query: title,
+						// Tell TemplateEngine which format to use for this request
+						preferredEpisodeFormat: format.type
+					});
 
+					attemptedVariants++;
+					try {
 						const releases = await indexer.search(textCriteria);
+						successfulVariants++;
 
 						// Add unique releases (dedupe by guid)
 						for (const release of releases) {
@@ -852,14 +969,82 @@ export class SearchOrchestrator {
 								allReleases.push(release);
 							}
 						}
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						variantErrors.push(message);
+						logger.debug('Multi-title search variant failed', {
+							indexer: indexer.name,
+							title,
+							format: format.type,
+							error: message
+						});
 					}
-				} else {
-					// Movie/other search: just use title
+				}
+			} else if (isMovieSearch(criteria)) {
+				// Movie search: try provider-configured format variants.
+				// Default fallback includes noYear to avoid false negatives on indexers
+				// that over-constrain title+year keyword searches.
+				const movieFormats = indexer.capabilities.searchFormats?.movie ?? ['standard', 'noYear'];
+				const seenMovieVariants = new Set<string>();
+
+				for (const format of movieFormats) {
+					let movieQuery = title;
+					let movieYear = criteria.year;
+
+					if (format === 'noYear') {
+						movieYear = undefined;
+					} else if (format === 'yearOnly') {
+						if (!criteria.year) continue;
+						movieQuery = String(criteria.year);
+						movieYear = undefined;
+					}
+
+					const variantKey = `${movieQuery}::${movieYear ?? ''}`;
+					if (seenMovieVariants.has(variantKey)) {
+						continue;
+					}
+					seenMovieVariants.add(variantKey);
+
 					const textCriteria = createTextOnlyCriteria({
 						...criteria,
-						query: title
+						query: movieQuery,
+						year: movieYear
 					});
+
+					attemptedVariants++;
+					try {
+						const releases = await indexer.search(textCriteria);
+						successfulVariants++;
+
+						for (const release of releases) {
+							if (!seenGuids.has(release.guid)) {
+								seenGuids.add(release.guid);
+								allReleases.push(release);
+							}
+						}
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						variantErrors.push(message);
+						logger.debug('Multi-title search variant failed', {
+							indexer: indexer.name,
+							title: movieQuery,
+							year: movieYear,
+							format,
+							error: message
+						});
+					}
+				}
+			} else {
+				// Other search types: just use title
+				const textCriteria = createTextOnlyCriteria({
+					...criteria,
+					query: title
+				});
+
+				attemptedVariants++;
+				try {
 					const releases = await indexer.search(textCriteria);
+					successfulVariants++;
 
 					// Add unique releases
 					for (const release of releases) {
@@ -868,14 +1053,22 @@ export class SearchOrchestrator {
 							allReleases.push(release);
 						}
 					}
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					variantErrors.push(message);
+					logger.debug('Multi-title search variant failed', {
+						indexer: indexer.name,
+						title,
+						error: message
+					});
 				}
-			} catch (error) {
-				logger.debug('Multi-title search variant failed', {
-					indexer: indexer.name,
-					title,
-					error: error instanceof Error ? error.message : String(error)
-				});
 			}
+		}
+
+		// If every variant failed, surface failure so status tracking records it.
+		if (attemptedVariants > 0 && successfulVariants === 0 && variantErrors.length > 0) {
+			const uniqueErrors = [...new Set(variantErrors.filter(Boolean))];
+			throw new Error(uniqueErrors.slice(0, 2).join('; ') || 'All text search attempts failed');
 		}
 
 		if (allReleases.length > 0) {
@@ -967,9 +1160,14 @@ export class SearchOrchestrator {
 	 * For movie searches: Rejects releases that are clearly TV episodes (have S01E03 patterns)
 	 *
 	 * For TV searches with season/episode specified:
-	 * - Season-only search: Returns season packs (single or multi-season) that contain the target season
-	 * - Season+episode search: Returns matching individual episodes AND season packs containing the episode
-	 *   (Season packs will be scored higher via pack bonus, so they'll naturally float to the top)
+	 * - Season-only search: Returns single-season packs that exactly match the target season
+	 *   (multi-season packs and complete series are excluded to avoid cluttering results)
+	 * - Season+episode search:
+	 *   - interactive: Returns matching individual episodes only (no season packs)
+	 *   - automatic: Returns matching individual episodes AND single-season packs
+	 * - Episode-only search:
+	 *   - interactive: Returns matching individual episodes only
+	 *   - automatic: Returns matching individual episodes and season packs
 	 *
 	 * Optimization: Caches parsed results on releases to avoid re-parsing in enricher.
 	 */
@@ -1006,6 +1204,7 @@ export class SearchOrchestrator {
 
 		const targetSeason = criteria.season;
 		const targetEpisode = criteria.episode;
+		const isInteractiveSearch = criteria.searchSource === 'interactive';
 
 		// If no season/episode specified, return all
 		if (targetSeason === undefined && targetEpisode === undefined) {
@@ -1029,32 +1228,31 @@ export class SearchOrchestrator {
 				return false;
 			}
 
-			// Helper to check if the release contains the target season
-			const containsTargetSeason = (): boolean => {
-				// Complete series always matches any season
+			// Helper to check if the release is a single-season pack matching the target
+			const isSingleSeasonMatch = (): boolean => {
+				// Reject complete series packs (e.g., "Complete Series", "All Seasons")
 				if (episodeInfo.isCompleteSeries) {
-					return true;
+					return false;
 				}
-				// Multi-season pack: check if target season is in the range
-				if (episodeInfo.seasons?.length) {
-					return episodeInfo.seasons.includes(targetSeason!);
+				// Reject multi-season packs (e.g., S01-S05, Seasons 1-5)
+				if (episodeInfo.seasons && episodeInfo.seasons.length > 1) {
+					return false;
 				}
 				// Single season: exact match
 				return episodeInfo.season === targetSeason;
 			};
 
-			// Season-only search: filter to season packs that contain the target season
+			// Season-only search: filter to single-season packs matching the target season
 			if (targetSeason !== undefined && targetEpisode === undefined) {
-				return episodeInfo.isSeasonPack && containsTargetSeason();
+				return episodeInfo.isSeasonPack && isSingleSeasonMatch();
 			}
 
-			// Season + episode search: include BOTH specific episodes AND season packs
-			// Season packs will get a higher score via pack bonus, so they'll naturally
-			// rank higher than individual episodes of similar quality
+			// Season + episode search:
+			// - interactive: exact episode matches only
+			// - automatic: allow single-season packs as candidates
 			if (targetSeason !== undefined && targetEpisode !== undefined) {
-				// Include season packs that contain the target season
-				if (episodeInfo.isSeasonPack && containsTargetSeason()) {
-					return true;
+				if (episodeInfo.isSeasonPack) {
+					return !isInteractiveSearch && isSingleSeasonMatch();
 				}
 				// Include individual episodes that match exactly
 				return (
@@ -1064,10 +1262,12 @@ export class SearchOrchestrator {
 				);
 			}
 
-			// Episode-only search (rare): match episode number or include any season pack
+			// Episode-only search (rare):
+			// - interactive: exact episode match only
+			// - automatic: include season packs as broad candidates
 			if (targetEpisode !== undefined) {
 				if (episodeInfo.isSeasonPack) {
-					return true; // Season packs always match episode-only searches
+					return !isInteractiveSearch;
 				}
 				return episodeInfo.episodes?.includes(targetEpisode);
 			}
@@ -1111,6 +1311,344 @@ export class SearchOrchestrator {
 	}
 
 	/**
+	 * Filter releases by title relevance.
+	 * Safety net to reject releases that are clearly for a different title
+	 * (e.g., random TV shows returned by a generic RSS feed when ID search fails).
+	 * Only filters when we have a known title to compare against.
+	 */
+	private filterByTitleRelevance(
+		releases: ReleaseResult[],
+		criteria: SearchCriteria
+	): ReleaseResult[] {
+		// Collect all expected titles: query + searchTitles
+		const expectedTitles: string[] = [];
+		if (criteria.query) expectedTitles.push(criteria.query);
+		if (criteria.searchTitles) expectedTitles.push(...criteria.searchTitles);
+
+		// If we have no titles to compare against, skip filtering
+		if (expectedTitles.length === 0) return releases;
+
+		// Normalize titles for comparison: lowercase, remove non-alphanumeric
+		const normalize = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+		const normalizedExpected = expectedTitles.map(normalize).filter((t) => t.length > 0);
+		if (normalizedExpected.length === 0) return releases;
+
+		// Extract the series/movie name from a release title.
+		// The name is the part before season/episode markers, year, or quality markers.
+		const extractReleaseName = (title: string): string => {
+			// Remove common group tags at the beginning like [GroupName]
+			let clean = title.replace(/^\[.*?\]\s*/, '');
+			// Split on season/episode markers: S01, S01E01, 1x01, Season, Episode, etc.
+			clean = clean.split(/[.\s_-](?:S\d|Season|\d{1,2}x\d{2,3})/i)[0];
+			// Also split on year patterns (4 digits in parens or after dots)
+			clean = clean.split(/[.\s_(-](?:19|20)\d{2}/)[0];
+			// Also split on quality markers
+			clean = clean.split(
+				/[.\s_-](?:720p|1080p|2160p|4K|HDTV|WEB|BluRay|BDRip|DVDRip|WEBRip|WEBDL|WEB-DL|AMZN|NF|DSNP|HULU)/i
+			)[0];
+			return clean;
+		};
+
+		const beforeCount = releases.length;
+		const filtered = releases.filter((release) => {
+			const releaseName = normalize(extractReleaseName(release.title));
+			if (releaseName.length === 0) return true; // Can't parse, keep it
+
+			// Check if any expected title is similar enough to the release name
+			// Using Levenshtein distance-based similarity instead of substring matching
+			// to prevent false positives like "TransformersOne" matching "Transformers"
+			const matches = normalizedExpected.some((expected) => {
+				return this.calculateTitleSimilarity(releaseName, expected) >= 0.7;
+			});
+
+			if (!matches) {
+				logger.debug('[SearchOrchestrator] Rejecting release due to title mismatch', {
+					releaseTitle: release.title,
+					parsedName: extractReleaseName(release.title),
+					expectedTitles: expectedTitles.slice(0, 3)
+				});
+			}
+
+			return matches;
+		});
+
+		if (filtered.length < beforeCount) {
+			logger.info('[SearchOrchestrator] Title relevance filter removed irrelevant results', {
+				before: beforeCount,
+				after: filtered.length,
+				removed: beforeCount - filtered.length,
+				expectedTitles: expectedTitles.slice(0, 3)
+			});
+		}
+
+		return filtered;
+	}
+
+	/**
+	 * Calculate title similarity using Levenshtein distance.
+	 * Returns a value between 0 (completely different) and 1 (identical).
+	 */
+	private calculateTitleSimilarity(a: string, b: string): number {
+		if (a === b) return 1.0;
+
+		const m = a.length;
+		const n = b.length;
+
+		// Create distance matrix
+		const d: number[][] = [];
+		for (let i = 0; i <= n; i++) {
+			d[i] = [i];
+		}
+		for (let j = 0; j <= m; j++) {
+			d[0][j] = j;
+		}
+
+		// Fill the matrix
+		for (let i = 1; i <= n; i++) {
+			for (let j = 1; j <= m; j++) {
+				if (b.charAt(i - 1) === a.charAt(j - 1)) {
+					d[i][j] = d[i - 1][j - 1];
+				} else {
+					d[i][j] = Math.min(
+						d[i - 1][j - 1] + 1, // substitution
+						d[i][j - 1] + 1, // insertion
+						d[i - 1][j] + 1 // deletion
+					);
+				}
+			}
+		}
+
+		const maxLength = Math.max(m, n);
+		if (maxLength === 0) return 1.0;
+
+		return 1 - d[n][m] / maxLength;
+	}
+
+	/**
+	 * Filter releases by ID match with title+year fallback.
+	 *
+	 * PRIORITY 1: ID Matching (preferred)
+	 * - If indexer provides TMDB/IMDB/TVDB ID and it doesn't match search criteria, hard reject
+	 * - If IDs match exactly, accept immediately
+	 *
+	 * PRIORITY 2: Title + Year Fallback (when no IDs)
+	 * - Validate title similarity >= 0.7 AND year within 1 year
+	 * - If can't validate (no criteria), keep release
+	 *
+	 * This completely removes mismatched releases (not just marks as rejected).
+	 */
+	private filterByIdOrTitleMatch(
+		releases: ReleaseResult[],
+		criteria: SearchCriteria
+	): ReleaseResult[] {
+		// Only process movie or TV searches
+		if (!isMovieSearch(criteria) && !isTvSearch(criteria)) {
+			return releases;
+		}
+
+		// Get search IDs (type-safe access)
+		const searchTmdbId =
+			isMovieSearch(criteria) || isTvSearch(criteria) ? criteria.tmdbId : undefined;
+		const searchImdbId =
+			isMovieSearch(criteria) || isTvSearch(criteria) ? criteria.imdbId : undefined;
+		const searchTvdbId = isTvSearch(criteria) ? criteria.tvdbId : undefined;
+		const searchYear = isMovieSearch(criteria) || isTvSearch(criteria) ? criteria.year : undefined;
+
+		// Skip if we have no way to validate (no search IDs or titles)
+		const hasSearchIds = searchTmdbId || searchImdbId || searchTvdbId;
+		const hasSearchTitles = criteria.searchTitles && criteria.searchTitles.length > 0;
+		const hasSearchYear = searchYear;
+
+		if (!hasSearchIds && !hasSearchTitles && !hasSearchYear) {
+			return releases;
+		}
+
+		const beforeCount = releases.length;
+
+		const filtered = releases.filter((release) => {
+			let parsed: ReturnType<typeof parseRelease> | undefined;
+			const getParsed = () => {
+				if (!parsed) {
+					parsed = parseRelease(release.title);
+				}
+				return parsed;
+			};
+
+			// PRIORITY 1: ID Matching (if both sides have IDs)
+
+			// TMDB ID check
+			if (searchTmdbId && release.tmdbId) {
+				if (release.tmdbId !== searchTmdbId) {
+					logger.debug('[SearchOrchestrator] ID mismatch - removing release', {
+						releaseTitle: release.title,
+						releaseTmdbId: release.tmdbId,
+						criteriaTmdbId: searchTmdbId,
+						indexer: release.indexerName
+					});
+					return false; // Hard reject
+				}
+				// IDs match - accept immediately
+				return true;
+			}
+
+			// IMDB ID check
+			if (searchImdbId && release.imdbId) {
+				if (release.imdbId !== searchImdbId) {
+					logger.debug('[SearchOrchestrator] ID mismatch - removing release', {
+						releaseTitle: release.title,
+						releaseImdbId: release.imdbId,
+						criteriaImdbId: searchImdbId,
+						indexer: release.indexerName
+					});
+					return false; // Hard reject
+				}
+				// IDs match - accept immediately
+				return true;
+			}
+
+			// TVDB ID check (TV only)
+			if (searchTvdbId && release.tvdbId) {
+				if (release.tvdbId !== searchTvdbId) {
+					logger.debug('[SearchOrchestrator] TVDB ID mismatch - removing release', {
+						releaseTitle: release.title,
+						releaseTvdbId: release.tvdbId,
+						criteriaTvdbId: searchTvdbId,
+						indexer: release.indexerName
+					});
+					return false; // Hard reject
+				}
+				// IDs match - accept immediately
+				return true;
+			}
+
+			// For movies, enforce strict year matching whenever we can parse a year
+			// from the release title, even if title variants are unavailable.
+			if (isMovieSearch(criteria) && searchYear) {
+				const parsedRelease = getParsed();
+				if (parsedRelease.year && Math.abs(parsedRelease.year - searchYear) > 1) {
+					logger.debug('[SearchOrchestrator] Year mismatch - removing movie release', {
+						releaseTitle: release.title,
+						releaseYear: parsedRelease.year,
+						criteriaYear: searchYear,
+						indexer: release.indexerName
+					});
+					return false;
+				}
+			}
+
+			// PRIORITY 2: Title + Year Fallback (if no ID match possible)
+			if (hasSearchTitles && hasSearchYear) {
+				// Parse release title
+				const parsedRelease = getParsed();
+
+				// Check title similarity
+				const releaseName = this.normalizeForComparison(parsedRelease.cleanTitle);
+				const titleMatch = criteria.searchTitles!.some((expectedTitle) => {
+					const expectedName = this.normalizeForComparison(expectedTitle);
+					const similarity = this.calculateTitleSimilarity(releaseName, expectedName);
+					return similarity >= 0.7;
+				});
+
+				// Check year (allow 1 year difference for release/production year differences)
+				const yearMatch = parsedRelease.year && Math.abs(parsedRelease.year - searchYear!) <= 1;
+
+				if (!titleMatch || !yearMatch) {
+					logger.debug('[SearchOrchestrator] Title/Year mismatch - removing release', {
+						releaseTitle: release.title,
+						parsedTitle: parsedRelease.cleanTitle,
+						parsedYear: parsedRelease.year,
+						criteriaYear: searchYear,
+						titleMatch,
+						yearMatch
+					});
+					return false; // Hard reject
+				}
+
+				// Title and year match - accept
+				return true;
+			}
+
+			// If we have no way to validate (no IDs, no criteria), keep it
+			// Let downstream filters handle it
+			return true;
+		});
+
+		if (filtered.length < beforeCount) {
+			logger.info('[SearchOrchestrator] ID/Title filter removed mismatched releases', {
+				before: beforeCount,
+				after: filtered.length,
+				removed: beforeCount - filtered.length,
+				criteriaTmdbId: searchTmdbId,
+				criteriaImdbId: searchImdbId,
+				hadSearchTitles: hasSearchTitles,
+				criteriaYear: searchYear
+			});
+		}
+
+		return filtered;
+	}
+
+	/**
+	 * Normalize a string for title comparison.
+	 * Removes punctuation, converts to lowercase, normalizes whitespace.
+	 */
+	private normalizeForComparison(str: string): string {
+		return str
+			.toLowerCase()
+			.replace(/[^\w\s]/g, '') // Remove punctuation
+			.replace(/\s+/g, ' ') // Normalize whitespace
+			.trim();
+	}
+
+	/**
+	 * Get aggregate and per-season episode counts for a TV show from TMDB.
+	 * Excludes specials (season 0) from series totals to match library sizing semantics.
+	 */
+	private async getTvEpisodeCounts(tmdbId: number): Promise<TvEpisodeCounts | undefined> {
+		if (this.tvEpisodeCountsCache.has(tmdbId)) {
+			return this.tvEpisodeCountsCache.get(tmdbId);
+		}
+
+		try {
+			const show = await tmdb.getTVShow(tmdbId);
+			const seasonEpisodeCounts = new Map<number, number>();
+
+			for (const season of show.seasons ?? []) {
+				const seasonNumber = season.season_number;
+				const episodeCount = season.episode_count;
+				if (seasonNumber > 0 && episodeCount > 0) {
+					seasonEpisodeCounts.set(seasonNumber, episodeCount);
+				}
+			}
+
+			let seriesEpisodeCount = Array.from(seasonEpisodeCounts.values()).reduce(
+				(total, count) => total + count,
+				0
+			);
+
+			// Fallback to TMDB aggregate count if seasons were unavailable
+			if (seriesEpisodeCount <= 0 && show.number_of_episodes > 0) {
+				seriesEpisodeCount = show.number_of_episodes;
+			}
+
+			const counts: TvEpisodeCounts = {
+				seriesEpisodeCount: seriesEpisodeCount > 0 ? seriesEpisodeCount : undefined,
+				seasonEpisodeCounts
+			};
+
+			this.tvEpisodeCountsCache.set(tmdbId, counts);
+			return counts;
+		} catch (error) {
+			logger.warn('Failed to fetch TV episode counts from TMDB', {
+				tmdbId,
+				error: error instanceof Error ? error.message : String(error)
+			});
+			return undefined;
+		}
+	}
+
+	/**
 	 * Get episode count for a TV season from TMDB.
 	 * Used for season pack size validation (per-episode size calculation).
 	 * Returns undefined if unable to fetch (allows search to proceed without size validation).
@@ -1125,6 +1663,15 @@ export class SearchOrchestrator {
 		const tmdbId = criteria.tmdbId;
 		if (!tmdbId) {
 			return undefined;
+		}
+
+		// Reuse cached TV episode counts if available
+		const cachedTvCounts = this.tvEpisodeCountsCache.get(tmdbId);
+		if (cachedTvCounts) {
+			const cachedSeasonCount = cachedTvCounts.seasonEpisodeCounts.get(criteria.season);
+			if (cachedSeasonCount && cachedSeasonCount > 0) {
+				return cachedSeasonCount;
+			}
 		}
 
 		// Check cache first
@@ -1171,12 +1718,15 @@ export class SearchOrchestrator {
 			return criteria;
 		}
 
-		// If we already have IMDB ID, no enrichment needed
-		if ('imdbId' in criteria && criteria.imdbId) {
+		const hasImdb = 'imdbId' in criteria && !!criteria.imdbId;
+		const hasTvdb = criteria.searchType === 'tv' && 'tvdbId' in criteria && !!criteria.tvdbId;
+
+		// If we already have all relevant IDs, no enrichment needed
+		if (hasImdb && (criteria.searchType === 'movie' || hasTvdb)) {
 			return criteria;
 		}
 
-		// If we have TMDB ID but no IMDB ID, look it up
+		// If we have TMDB ID, look up missing external IDs
 		if ('tmdbId' in criteria && criteria.tmdbId) {
 			try {
 				const externalIds =
@@ -1184,20 +1734,26 @@ export class SearchOrchestrator {
 						? await tmdb.getMovieExternalIds(criteria.tmdbId)
 						: await tmdb.getTvExternalIds(criteria.tmdbId);
 
-				if (externalIds.imdb_id) {
-					logger.debug('Enriched search criteria with IMDB ID', {
-						tmdbId: criteria.tmdbId,
-						imdbId: externalIds.imdb_id
-					});
+				let enriched = { ...criteria };
 
-					return {
-						...criteria,
-						imdbId: externalIds.imdb_id
-					};
+				if (!hasImdb && externalIds.imdb_id) {
+					enriched = { ...enriched, imdbId: externalIds.imdb_id };
 				}
+
+				if (criteria.searchType === 'tv' && !hasTvdb && externalIds.tvdb_id) {
+					enriched = { ...enriched, tvdbId: externalIds.tvdb_id } as typeof enriched;
+				}
+
+				logger.debug('Enriched search criteria with external IDs', {
+					tmdbId: criteria.tmdbId,
+					imdbId: 'imdbId' in enriched ? (enriched.imdbId as string) : null,
+					tvdbId: 'tvdbId' in enriched ? (enriched.tvdbId as number) : null
+				});
+
+				return enriched as SearchCriteria;
 			} catch (error) {
-				// Log but don't fail - search can still proceed without IMDB ID
-				logger.warn('Failed to look up IMDB ID from TMDB', {
+				// Log but don't fail - search can still proceed without external IDs
+				logger.warn('Failed to look up external IDs from TMDB', {
 					tmdbId: criteria.tmdbId,
 					error: error instanceof Error ? error.message : String(error)
 				});

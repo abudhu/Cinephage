@@ -9,14 +9,15 @@
 	import { getMovieAvailabilityLevel } from '$lib/utils/movieAvailability';
 	import {
 		Search,
+		Download,
 		Settings,
 		Trash2,
 		ExternalLink,
-		Download,
 		Clock,
 		Loader2,
 		Check,
-		X
+		X,
+		Zap
 	} from 'lucide-svelte';
 
 	interface AutoSearchResult {
@@ -43,6 +44,7 @@
 		onMonitorToggle?: (newValue: boolean) => void;
 		onAutoSearch?: () => void;
 		onSearch?: () => void;
+		onImport?: () => void;
 		onEdit?: () => void;
 		onDelete?: () => void;
 		onScoreClick?: () => void;
@@ -59,6 +61,7 @@
 		onMonitorToggle,
 		onAutoSearch,
 		onSearch,
+		onImport,
 		onEdit,
 		onDelete,
 		onScoreClick
@@ -169,7 +172,7 @@
 						onToggle={onMonitorToggle}
 						size="md"
 					/>
-					<!-- Auto Search Button -->
+					<!-- Auto Grab Button -->
 					<button
 						class="btn gap-2 btn-sm btn-primary"
 						onclick={onAutoSearch}
@@ -186,8 +189,8 @@
 							<X size={16} />
 							<span class="hidden sm:inline">Failed</span>
 						{:else}
-							<Download size={16} />
-							<span class="hidden sm:inline">Auto Search</span>
+							<Zap size={16} />
+							<span class="hidden sm:inline">Auto Grab</span>
 						{/if}
 					</button>
 					<!-- Manual/Interactive Search Button -->
@@ -195,6 +198,16 @@
 						<Search size={16} />
 						<span class="hidden sm:inline">Manual</span>
 					</button>
+					{#if onImport}
+						<button
+							class="btn gap-2 btn-ghost btn-sm"
+							onclick={onImport}
+							title="Import local media"
+						>
+							<Download size={16} />
+							<span class="hidden sm:inline">Import</span>
+						</button>
+					{/if}
 					<button class="btn btn-ghost btn-sm" onclick={onEdit} title="Edit">
 						<Settings size={16} />
 					</button>
@@ -240,7 +253,7 @@
 						</div>
 					{/if}
 					{#if movie.hasFile && totalSize > 0}
-						<span class="text-sm text-base-content/70">
+						<span class="badge badge-sm badge-info">
 							{formatBytes(totalSize)}
 						</span>
 					{/if}

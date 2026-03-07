@@ -14,11 +14,13 @@
 		Calendar,
 		Activity,
 		TrendingUp,
-		PlayCircle,
+		Compass,
 		ArrowRight,
 		Loader2,
 		Minus,
-		Wifi
+		Wifi,
+		ListTodo,
+		HardDrive
 	} from 'lucide-svelte';
 	import TmdbImage from '$lib/components/tmdb/TmdbImage.svelte';
 	import { resolve } from '$app/paths';
@@ -161,7 +163,19 @@
 		if (activity.mediaType === 'movie') return Boolean(activity.mediaId);
 		return Boolean(activity.seriesId || activity.mediaId);
 	}
+
+	function formatBytes(bytes: number): string {
+		if (bytes === 0) return '0 B';
+		const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+		const i = Math.floor(Math.log(bytes) / Math.log(1024));
+		const value = bytes / Math.pow(1024, i);
+		return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+	}
 </script>
+
+<svelte:head>
+	<title>Dashboard - Cinephage</title>
+</svelte:head>
 
 <div class="space-y-6">
 	<!-- Header -->
@@ -183,7 +197,7 @@
 					</span>
 				{/if}
 			</div>
-			<a href={resolve('/discover')} class="btn btn-primary">
+			<a href={resolve('/discover')} class="btn gap-2 btn-sm btn-primary sm:w-auto">
 				<Plus class="h-4 w-4" />
 				Add Content
 			</a>
@@ -286,7 +300,10 @@
 					</div>
 					<div>
 						<div class="text-2xl font-bold">{missingEpisodes.length}</div>
-						<div class="text-sm text-base-content/70">Missing Episodes</div>
+						<div class="text-sm text-base-content/70">
+							<span class="sm:hidden">Missing Eps</span>
+							<span class="hidden sm:inline">Missing Episodes</span>
+						</div>
 					</div>
 				</div>
 				<div class="mt-2 text-xs text-base-content/50">Aired but not downloaded</div>
@@ -353,6 +370,86 @@
 				</div>
 			</div>
 		{/if}
+
+		<!-- Storage -->
+		<div class="card bg-base-200">
+			<div class="card-body p-4">
+				<div class="flex items-center gap-3">
+					<div class="rounded-lg bg-info/10 p-2">
+						<HardDrive class="h-6 w-6 text-info" />
+					</div>
+					<div>
+						<div class="text-2xl font-bold">{formatBytes(stats.storage.totalBytes)}</div>
+						<div class="text-sm text-base-content/70">Storage</div>
+					</div>
+				</div>
+				<div class="mt-2 flex gap-2 text-xs">
+					{#if stats.storage.movieBytes > 0}
+						<span class="badge badge-sm whitespace-nowrap badge-primary">
+							<Clapperboard class="mr-1 h-3 w-3" />
+							{formatBytes(stats.storage.movieBytes)}
+						</span>
+					{/if}
+					{#if stats.storage.tvBytes > 0}
+						<span class="badge badge-sm whitespace-nowrap badge-secondary">
+							<Tv class="mr-1 h-3 w-3" />
+							{formatBytes(stats.storage.tvBytes)}
+						</span>
+					{/if}
+					{#if stats.storage.totalBytes === 0}
+						<span class="text-base-content/50">No files on disk</span>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Quick Actions -->
+	<div class="card bg-base-200">
+		<div class="card-body items-center gap-4 py-5 text-center">
+			<div class="space-y-1">
+				<div class="text-sm font-medium tracking-[0.2em] text-base-content/45 uppercase">
+					Quick Actions
+				</div>
+			</div>
+			<div class="flex w-full flex-wrap justify-center gap-2.5">
+				<a
+					href={resolve('/discover')}
+					class="btn min-w-34 justify-center border-info bg-info text-info-content btn-sm hover:border-info hover:bg-info/90"
+				>
+					<Compass class="h-4 w-4" />
+					Discover
+				</a>
+				<a
+					href={resolve('/library/import')}
+					class="btn min-w-34 justify-center border-primary bg-primary text-primary-content btn-sm hover:border-primary hover:bg-primary/90"
+				>
+					<Download class="h-4 w-4" />
+					Import
+				</a>
+				<a
+					href={resolve('/activity')}
+					class="btn min-w-34 justify-center border-secondary bg-secondary text-secondary-content btn-sm hover:border-secondary hover:bg-secondary/90"
+				>
+					<Activity class="h-4 w-4" />
+					View Activity
+				</a>
+				<a
+					href={resolve('/settings/integrations/indexers')}
+					class="btn min-w-34 justify-center border-accent bg-accent text-accent-content btn-sm hover:border-accent hover:bg-accent/90"
+				>
+					<TrendingUp class="h-4 w-4" />
+					Indexers
+				</a>
+				<a
+					href={resolve('/settings/tasks')}
+					class="btn min-w-34 justify-center border-warning bg-warning text-warning-content btn-sm hover:border-warning hover:bg-warning/90"
+				>
+					<ListTodo class="h-4 w-4" />
+					Tasks
+				</a>
+			</div>
+		</div>
 	</div>
 
 	<!-- Main Content Grid -->
@@ -627,31 +724,6 @@
 						<p class="mt-2 text-sm">No recent activity</p>
 					</div>
 				{/if}
-			</div>
-		</div>
-	</div>
-
-	<!-- Quick Actions -->
-	<div class="card bg-base-200">
-		<div class="card-body">
-			<h2 class="card-title">Quick Actions</h2>
-			<div class="flex flex-wrap gap-2">
-				<a href={resolve('/discover')} class="btn btn-outline btn-sm">
-					<Search class="h-4 w-4" />
-					Discover
-				</a>
-				<a href={resolve('/activity')} class="btn btn-outline btn-sm">
-					<Download class="h-4 w-4" />
-					View Activity
-				</a>
-				<a href={resolve('/settings/integrations/indexers')} class="btn btn-outline btn-sm">
-					<TrendingUp class="h-4 w-4" />
-					Indexers
-				</a>
-				<a href={resolve('/settings/tasks')} class="btn btn-outline btn-sm">
-					<PlayCircle class="h-4 w-4" />
-					Tasks
-				</a>
 			</div>
 		</div>
 	</div>

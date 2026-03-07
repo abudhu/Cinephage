@@ -25,12 +25,14 @@ If deploying without Docker, or if you want to pass the environment variables to
 
 ### Logging
 
-| Variable          | Default  | Description                       |
-| ----------------- | -------- | --------------------------------- |
-| `LOG_DIR`         | `./logs` | Log file directory                |
-| `LOG_MAX_SIZE_MB` | `10`     | Max log file size before rotation |
-| `LOG_MAX_FILES`   | `5`      | Number of rotated logs to keep    |
-| `LOG_TO_FILE`     | `true`   | Enable/disable file logging       |
+| Variable            | Default                    | Description                                        |
+| ------------------- | -------------------------- | -------------------------------------------------- |
+| `LOG_DIR`           | `./logs`                   | Log file directory                                 |
+| `LOG_MAX_SIZE_MB`   | `10`                       | Max log file size before rotation                  |
+| `LOG_MAX_FILES`     | `5`                        | Number of rotated logs to keep                     |
+| `LOG_TO_FILE`       | `true`                     | Enable/disable file logging                        |
+| `LOG_INCLUDE_STACK` | Dev: `true`, Prod: `false` | Force include/suppress error stack traces          |
+| `LOG_SENSITIVE`     | `false`                    | Set `true` to bypass secret redaction (debug only) |
 
 ### Media Info
 
@@ -44,14 +46,18 @@ If ffprobe is not in your PATH, specify the full path.
 
 Controls concurrency for background tasks.
 
-| Variable                | Default   | Description                      |
-| ----------------------- | --------- | -------------------------------- |
-| `WORKER_MAX_STREAMS`    | `10`      | Max concurrent stream resolution |
-| `WORKER_MAX_IMPORTS`    | `5`       | Max concurrent file imports      |
-| `WORKER_MAX_SCANS`      | `2`       | Max concurrent library scans     |
-| `WORKER_MAX_MONITORING` | `5`       | Max concurrent monitoring tasks  |
-| `WORKER_CLEANUP_MS`     | `1800000` | Worker cleanup interval (30 min) |
-| `WORKER_MAX_LOGS`       | `1000`    | Max log entries per worker       |
+| Variable                     | Default   | Description                      |
+| ---------------------------- | --------- | -------------------------------- |
+| `WORKER_MAX_STREAMS`         | `10`      | Max concurrent stream resolution |
+| `WORKER_MAX_IMPORTS`         | `5`       | Max concurrent file imports      |
+| `WORKER_MAX_SCANS`           | `2`       | Max concurrent library scans     |
+| `WORKER_MAX_MONITORING`      | `5`       | Max concurrent monitoring tasks  |
+| `WORKER_MAX_SEARCH`          | `3`       | Max concurrent search tasks      |
+| `WORKER_MAX_SUBTITLE_SEARCH` | `3`       | Max concurrent subtitle searches |
+| `WORKER_MAX_PORTAL_SCANS`    | `2`       | Max concurrent portal scans      |
+| `WORKER_MAX_CHANNEL_SYNCS`   | `3`       | Max concurrent channel syncs     |
+| `WORKER_CLEANUP_MS`          | `1800000` | Worker cleanup interval (30 min) |
+| `WORKER_MAX_LOGS`            | `1000`    | Max log entries per worker       |
 
 **Tuning tips:**
 
@@ -81,6 +87,8 @@ No environment variables are required for database configuration.
 
 ### Database Management
 
+The following `npm` commands are for manual/source installs.
+
 ```bash
 # Show database info
 npm run db:info
@@ -91,6 +99,8 @@ npm run db:reset
 # Optimize database
 sqlite3 data/cinephage.db "VACUUM;"
 ```
+
+For Docker deployments, the runtime image does not include `npm`. Manage the database directly under `/config/data/cinephage.db` (for example, backup/replace/reset) and restart the container.
 
 ---
 
